@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seestar-photometry"
+version = "0.1.0"
+description = "Time-domain photometry from ZWO Seestar smart-telescope stacks, calibrated to Gaia synthetic V"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "astropy",
+    "astroquery>=0.4.11",
+    "numpy",
+    "scipy",
+    "sep>=1.4.1",
+]
+
+[project.optional-dependencies]
+# Diagnostic figures. Kept an extra (and imported lazily) so the measurement
+# path installs and runs headless, but in practice you want this.
+plot = ["matplotlib"]
+notebook = ["matplotlib", "jupyterlab"]
+dev = ["matplotlib", "pytest", "pytest-cov"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seestar_photometry"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # astropy's bundled IERS table is routinely stale/extrapolated offline; the
+    # accuracy is irrelevant for airmass and barycentric corrections at our level.
+    "ignore::astropy.utils.exceptions.AstropyWarning",
+]

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# uv
+.venv/
+
+# Editors
+.idea/
+.vscode/
+
+# Secrets -- ASTROMETRY_KEY lives in the environment, never in the repo
+.env
+
+# Derived products. Everything the pipeline writes goes to a project work_dir, which
+# should live outside the repo; these patterns are a backstop for a work_dir set to '.'
+frames.ecsv
+stars.ecsv
+measurements.ecsv
+catalogue_*.ecsv
+diagnostics/
+errors.log
+*.wcs
