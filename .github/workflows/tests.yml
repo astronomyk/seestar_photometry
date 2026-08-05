@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The example data is an ~18 MB release asset fetched on demand. Cache it on the
+      # path examples.data_dir() resolves to, keyed on the dataset version, so only a
+      # cold cache pays the download.
+      - name: Cache example data
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/seestar-photometry
+            ~\AppData\Local\seestar-photometry
+          key: example-data-v1-${{ runner.os }}
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install ".[dev]"
+
+      # Fetch once here rather than inside a test, so a slow download is not attributed
+      # to whichever test happened to run first.
+      - name: Fetch example data
+        run: python -c "from seestar_photometry import examples; examples.download()"
+
+      - name: Test
+        run: pytest -q

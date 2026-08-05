@@ -217,5 +217,6 @@ def test_onboard_quality_lifted_from_crowdsky_header(mef_frame, cube_frame):
     """A CrowdSky frame carries the server's own metrics; a native one does not."""
     lifted = quality.onboard_quality(mef_frame)
     assert lifted["onboard_zp_G"] == pytest.approx(22.9)
-    assert lifted["onboard_fwhm_G"] == pytest.approx(6.6)
+    # CrowdSky reports FWHM in arcsec, hence the key name.
+    assert lifted["onboard_fwhm_G_arcsec"] == pytest.approx(6.6)
     assert quality.onboard_quality(cube_frame) == {}

@@ -28,7 +28,9 @@ from . import (
     calibration,
     catalogs,
     contamination,
+    debayer,
     depth,
+    examples,
     frames,
     kron,
     lightcurves,
@@ -38,17 +40,25 @@ from . import (
     project,
     quality,
     report,
+    stacking,
 )
 from .frames import BANDS, LocalTree, SeestarFrame, load_frame
 from .project import Project, Target
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version as _pkg_version
+
+    #: Read from installed metadata, so pyproject.toml is the single source of truth.
+    #: A hardcoded literal here silently drifted out of sync once already.
+    __version__ = _pkg_version("seestar-photometry")
+except Exception:  # running from a source tree with no install
+    __version__ = "0.0.0.dev0"
 
 __all__ = [
     # submodules
-    "astrometry", "calibration", "catalogs", "contamination", "depth", "frames",
-    "kron", "lightcurves", "photometry", "pipeline", "plots", "project", "quality",
-    "report",
+    "astrometry", "calibration", "catalogs", "contamination", "debayer", "depth",
+    "examples", "frames", "kron", "lightcurves", "photometry", "pipeline", "plots", "project",
+    "quality", "report", "stacking",
     # the names you actually reach for
     "BANDS", "LocalTree", "Project", "SeestarFrame", "Target", "load_frame",
 ]

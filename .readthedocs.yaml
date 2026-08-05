@@ -1,0 +1,23 @@
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+
+sphinx:
+  configuration: docs/conf.py
+  fail_on_warning: false
+
+python:
+  install:
+    # Install the package itself so autodoc imports the real modules and picks up the
+    # version. `sep` and the stacking extras are mocked in conf.py, so they are not needed
+    # to build -- but the docs extra brings sphinx, myst-parser and the theme.
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+
+formats:
+  - pdf

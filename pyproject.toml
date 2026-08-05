@@ -4,11 +4,30 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seestar-photometry"
-version = "0.1.0"
-description = "Time-domain photometry from ZWO Seestar smart-telescope stacks, calibrated to Gaia synthetic V"
+version = "0.2.0"
+description = "Time-domain photometry from ZWO Seestar smart-telescope frames, calibrated to Gaia synthetic V"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Kieran Leschinski", email = "kieran.leschinski@univie.ac.at" },
+]
+keywords = [
+    "astronomy", "photometry", "seestar", "smart telescope", "time-domain",
+    "light curve", "differential photometry", "gaia", "citizen science",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
 dependencies = [
     "astropy",
     "astroquery>=0.4.11",
@@ -17,15 +36,54 @@ dependencies = [
     "sep>=1.4.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/astronomyk/seestar_photometry"
+Documentation = "https://seestar-photometry.readthedocs.io"
+Source = "https://github.com/astronomyk/seestar_photometry"
+Issues = "https://github.com/astronomyk/seestar_photometry/issues"
+Changelog = "https://github.com/astronomyk/seestar_photometry/blob/master/CHANGELOG.md"
+
 [project.optional-dependencies]
 # Diagnostic figures. Kept an extra (and imported lazily) so the measurement
 # path installs and runs headless, but in practice you want this.
 plot = ["matplotlib"]
+# Local stacking of raw sub-exposures: registration + warping.
+stack = ["astroalign>=2.6.2", "scikit-image"]
 notebook = ["matplotlib", "jupyterlab"]
-dev = ["matplotlib", "pytest", "pytest-cov"]
+docs = ["sphinx>=7", "myst-parser", "furo", "matplotlib"]
+dev = [
+    "matplotlib",
+    "pytest",
+    "pytest-cov",
+    "astroalign>=2.6.2",
+    "scikit-image",
+    "build",
+    "twine",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seestar_photometry"]
+
+# The example data is NOT shipped. 18 MB of FITS in a package every user installs is rude
+# to PyPI; `examples.download()` fetches it from a GitHub release asset on first use and
+# caches it. See src/seestar_photometry/examples.py.
+
+# The sdist carries the tests and docs too, so a downstream packager can run the suite.
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/seestar_photometry",
+    "tests",
+    "docs",
+    "tools",
+    "examples",
+    "example_data/SHA256",
+    "README.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "LICENSE",
+    "pyproject.toml",
+    ".readthedocs.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

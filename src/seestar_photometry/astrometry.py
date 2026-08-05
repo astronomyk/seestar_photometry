@@ -43,8 +43,18 @@ ASTAP_EXE = r"C:\Program Files\astap\astap_cli.exe"
 
 
 def wcs_cache_path(frame_path):
-    """Path of the ``.wcs`` sidecar for a given FITS path."""
-    return Path(frame_path).with_suffix(".wcs")
+    """Path of the ``.wcs`` sidecar for a given FITS path.
+
+    A compression suffix is stripped first, so ``frame.fits.gz`` caches to
+    ``frame.wcs`` rather than the surprising ``frame.fits.wcs`` that a naive suffix
+    replacement gives. Gzipped frames are common -- astropy reads them transparently,
+    so users do compress archives -- and a frame whose sidecar could not be found
+    would be silently re-solved every run.
+    """
+    path = Path(frame_path)
+    if path.suffix.lower() in (".gz", ".bz2", ".fz", ".zip"):
+        path = path.with_suffix("")
+    return path.with_suffix(".wcs")
 
 
 def header_pixel_scale(header):

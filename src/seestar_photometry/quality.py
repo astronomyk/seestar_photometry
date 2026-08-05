@@ -141,13 +141,23 @@ def onboard_quality(frame):
     ``SQMPHOT``, ...). Those numbers are *not* used for science here -- we re-measure
     everything -- but comparing them against our own row is a cheap, independent
     check that a frame was reduced sensibly. Returns ``{}`` for a native frame.
+
+    Mind the units: CrowdSky's FWHM is in **arcsec**, ours in **pixels**, so those keys are
+    named ``onboard_fwhm_*_arcsec``. See the comment on the key map below.
     """
     h = frame.header
     keys = {
         "onboard_zp_R": "ZPR", "onboard_zp_G": "ZPG", "onboard_zp_B": "ZPB",
         "onboard_rms_R": "ZPSCTR", "onboard_rms_G": "ZPSCTG", "onboard_rms_B": "ZPSCTB",
         "onboard_ct_R": "ZPCTR", "onboard_ct_G": "ZPCTG", "onboard_ct_B": "ZPCTB",
-        "onboard_fwhm_R": "FWHMR", "onboard_fwhm_G": "FWHMG", "onboard_fwhm_B": "FWHMB",
+        # Note the unit: CrowdSky reports FWHM in ARCSEC, this package in PIXELS. The
+        # column name carries the unit so nobody compares it to `fwhm_G` by accident. On a
+        # bundled S50 frame ours reads 2.74 px and CrowdSky's 6.63, which look wildly
+        # inconsistent until you apply the 2.3746 arcsec/px plate scale: 6.51 vs 6.63,
+        # agreement to 2%. Zero points, by contrast, compare directly (+0.03 mag there).
+        "onboard_fwhm_R_arcsec": "FWHMR",
+        "onboard_fwhm_G_arcsec": "FWHMG",
+        "onboard_fwhm_B_arcsec": "FWHMB",
         "onboard_sky_G": "SKYRMSG", "onboard_sqm": "SQMPHOT",
         "onboard_n_cal": "ZPNSTAR", "onboard_pixscale": "PIXSCALE",
     }

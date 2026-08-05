@@ -9,6 +9,11 @@ representation -- a ``(3, ny, nx)`` float32 array in R, G, B order:
     reads into numpy as ``(3, ny, nx)``. Stored uint16. Frame size depends on the
     model and binning (S50: 1080x1920; S30pro: 2160x3840, or 1080x1920 binned).
 
+``"bayer"`` -- **raw sub-exposure**
+    A single un-demosaiced 2-D Bayer mosaic, tagged by ``BAYERPAT`` (``GRBG`` on both
+    models). Demosaiced on load into the same ``(3, ny, nx)`` cube, with the native
+    mosaic kept on ``.bayer``. See :mod:`debayer` and :mod:`stacking`.
+
 ``"mef"`` -- **CrowdSky**
     The CrowdSky platform re-stacks and plate-solves, then writes a multi-extension
     file: an **empty** primary HDU carrying all the metadata, then ``RED``,
@@ -65,12 +70,17 @@ class SeestarFrame:
     path : Path
         Path the frame was loaded from.
     layout : str
-        ``"cube"`` (native) or ``"mef"`` (CrowdSky). See the module docstring.
+        ``"cube"`` (native stack), ``"mef"`` (CrowdSky) or ``"bayer"`` (raw sub,
+        demosaiced on load). See the module docstring.
     star_tab : astropy.table.Table or None
         The ``STAR-TAB`` catalogue, when the file carries one (CrowdSky only): the
         server's SEP detections with ``x``, ``y``, ``flux``, ``ra``, ``dec`` and
         Gaia cross-match columns. Useful as an independent cross-check of our own
         extraction, and as a source list for a WCS solve.
+    bayer : np.ndarray or None
+        The undemosaiced 2-D mosaic, for ``"bayer"`` frames only. Kept because
+        interpolated pixels are correlated: registration (:mod:`stacking`) and any
+        honest per-pixel noise estimate want the native samples, not the demosaic.
     """
 
     data: np.ndarray
@@ -79,6 +89,7 @@ class SeestarFrame:
     path: Path
     layout: str = "cube"
     star_tab: object = field(default=None, repr=False)
+    bayer: object = field(default=None, repr=False)
 
     @property
     def r(self):
@@ -166,31 +177,49 @@ def _read_star_tab(hdul):
     return None
 
 
-def load_frame(path):
-    """Load a Seestar frame from either FITS layout.
+def load_frame(path, pattern=None):
+    """Load a Seestar frame from any of the three FITS layouts.
 
     The colour planes are promoted to float32 so downstream arithmetic can't
     overflow the native uint16 storage, and are always returned as
     ``(3, ny, nx)`` in R, G, B order. The header is always the primary HDU's.
+
+    A **raw sub-exposure** is a single 2-D Bayer mosaic (``BAYERPAT``), not three
+    planes, so it is demosaiced on load (see :mod:`debayer`) and the undemosaiced
+    array is kept on ``.bayer`` for anything that wants the native samples --
+    notably :mod:`stacking`, which registers on the raw green lattice. That makes
+    a raw sub and an on-board stack interchangeable everywhere downstream.
+
+    Parameters
+    ----------
+    path : path-like
+    pattern : str, optional
+        Override the Bayer pattern instead of reading ``BAYERPAT``.
     """
+    from . import debayer as _debayer
+
     path = Path(path)
     with fits.open(path) as hdul:
         header = hdul[0].header
         primary = hdul[0].data
+        bayer = None
         if primary is not None and primary.ndim == 3:
             layout = "cube"
             data = _normalise_cube(primary)
-            star_tab = _read_star_tab(hdul)
+        elif _debayer.is_bayer(header, primary):
+            layout = "bayer"
+            bayer = np.ascontiguousarray(primary)
+            data = _debayer.debayer(bayer, pattern or _debayer.pattern_of(header))
         else:
             layout = "mef"
             idx = _plane_index(hdul)
             data = np.ascontiguousarray(
                 np.stack([hdul[i].data for i in idx]), dtype=np.float32
             )
-            star_tab = _read_star_tab(hdul)
+        star_tab = _read_star_tab(hdul)
     return SeestarFrame(
         data=data, header=header, model=_model_of(header), path=path,
-        layout=layout, star_tab=star_tab,
+        layout=layout, star_tab=star_tab, bayer=bayer,
     )
 
 

@@ -27,3 +27,12 @@ catalogue_*.ecsv
 diagnostics/
 errors.log
 *.wcs
+
+# Build outputs
+dist/
+docs/_build/
+
+# Example data: built by tools/build_example_data.py and published as a GitHub
+# release asset, not committed. SHA256 is tracked so the checksum is reviewable.
+example_data/*
+!example_data/SHA256
