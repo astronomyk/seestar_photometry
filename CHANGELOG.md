@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A catalogue-anchored plate solver** (`solver="local"`). No external binary, no network
+  and no index files: it pairs SEP detections against the reference catalogue the pipeline
+  already needs. Not a blind solver, because it does not need to be — the pointing is wrong
+  by an arcmin, not by degrees, so the job is refinement. It uses the header WCS as a seed
+  where there is one and falls back to asterism matching where there is not, which is every
+  native stack and anything `stacking.stack_frame` produced. Measured against the ASTAP
+  solutions shipped with the example data: worst disagreement 0.37 arcsec over four frames,
+  cross-match medians 0.41–0.49 arcsec against ASTAP's 0.51, at 0.4–0.7 s per frame against
+  ASTAP's ~1 s. `solver="astap"` remains the default, since it needs no catalogue.
+- **An offline Gaia catalogue** (`gaiadb`, needs the `catalog` extra): an opt-in download
+  that removes the TAP query, the least reliable step in the pipeline. HEALPix level-5
+  partitioned Parquet, so a region can be fetched on its own — three fields cost tens of MB
+  rather than the whole multi-GB set. `Project(catalogue_backend="auto")` uses it when it
+  covers the field and falls back to TAP when it does not, writing the same ECSV either way,
+  so nothing downstream changes.
+- **Proper motions and epoch propagation.** `Project(epoch=2026.4)` moves catalogue
+  positions from Gaia's J2016.0 to the observing season. A decade of proper motion moves a
+  100 mas/yr star by 1 arcsec — half the default match tolerance. The TAP path never fetched
+  proper motions and so could not do this at all.
+- The offline catalogue also carries columns nothing reads yet but that are cheap and hard
+  to add later: `c_star` and `ipd_frac_multi_peak` (blend indicators), `ruwe` and
+  `non_single_star` (unresolved binaries), `teff_gspphot`, and `v_jkc_flag`.
+- `tools/build_gaia_catalogue.py` builds a conforming dataset for one region from TAP,
+  which is enough to use the offline path on a field before any full-sky build exists.
+
+### Fixed
+
+- `docs/astrometry-and-gaia.md` claimed every Seestar frame arrives with a header WCS.
+  Native stacks carry the pointing and the optics keywords but no `CRVAL` at all; only
+  CrowdSky frames have a header solution.
+
 ## 0.2.0 — 2026-08-05
 
 First release intended for publication.

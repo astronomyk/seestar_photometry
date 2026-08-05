@@ -8,9 +8,10 @@ detail — this page is the map.
 | data | `frames` | Load any layout into one `(3, ny, nx)` cube; resolve header dialects; discover frames |
 | data | `debayer` | Bayer demosaic for raw subs |
 | measure | `photometry` | **The standard path**: detection, per-band aperture, fixed and forced flux |
-| measure | `astrometry` | Per-frame WCS via ASTAP or astrometry.net, cached as a sidecar |
+| measure | `astrometry` | Per-frame WCS against the catalogue, ASTAP or astrometry.net, cached as a sidecar |
 | measure | `catalogs` | Cached Gaia mosaic, footprint subsetting, cross-match |
 | measure | `stacking` | Register and co-add raw subs |
+| support | `gaiadb` | The offline Gaia catalogue: an opt-in local copy of the TAP query |
 | calibrate | `calibration` | Zero point + colour term; limiting and saturation magnitudes |
 | calibrate | `quality` | The frame-table row |
 | science | `lightcurves` | Timing, comparison selection, ensemble differential, periods |
@@ -37,6 +38,7 @@ Three conventions hold everywhere:
 .. automodule:: seestar_photometry.frames
 .. automodule:: seestar_photometry.debayer
 .. automodule:: seestar_photometry.examples
+.. automodule:: seestar_photometry.gaiadb
 ```
 
 ## Measurement

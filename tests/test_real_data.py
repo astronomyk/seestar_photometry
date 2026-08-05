@@ -427,6 +427,101 @@ def test_crowdsky_onboard_metrics_can_be_cross_checked():
     assert ours_arcsec == pytest.approx(onboard["onboard_fwhm_G_arcsec"], rel=0.15)
 
 
+# --- the catalogue-anchored solver, against the shipped solutions ----------------------
+
+#: Bundled frames and the sidecar stem each was solved into, for the solver tests.
+SOLVABLE = {
+    "stack_c17_15min": "cube, the general-purpose frame",
+    "stack_c17_30min": "cube, a different pointing",
+    "stack_saturated": "cube, a clipped brightest star",
+    "crowdsky_mef": "multi-extension, and the only one with a header WCS",
+}
+
+
+def _unsolved_copy(stem, directory):
+    """A bundled frame copied somewhere with no sidecar, so a solve is a real solve."""
+    import shutil
+
+    source = examples.path(stem)
+    target = directory / source.name
+    shutil.copy(source, target)
+    from seestar_photometry import frames as _frames
+
+    return _frames.load_frame(target)
+
+
+@pytest.mark.parametrize("stem", sorted(SOLVABLE))
+def test_local_solve_reproduces_the_shipped_solution(stem, tmp_path):
+    """Against ASTAP's answer for the same frame, which is the ground truth here.
+
+    The sidecars shipped with the example data came from ASTAP on the full frames, so
+    agreeing with them to a fraction of a pixel means the catalogue-anchored path is
+    doing the same job. Measured worst case over the four frames: 0.37 arcsec, against
+    a 2.39 arcsec pixel.
+    """
+    pytest.importorskip("astroalign")
+
+    frame = _unsolved_copy(stem, tmp_path)
+    assert astrometry.load_wcs(frame) is None, "the copy must start unsolved"
+
+    wcs = astrometry.solve_local(frame, examples.gaia())
+    shipped = astrometry._read_wcs(examples.path(stem + ".wcs"))
+
+    ny, nx = frame.shape
+    yy, xx = np.mgrid[0:ny:100, 0:nx:100]
+    ours = wcs.all_pix2world(xx.ravel(), yy.ravel(), 0)
+    theirs = shipped.all_pix2world(xx.ravel(), yy.ravel(), 0)
+    from seestar_photometry.gaiadb import separation_deg
+
+    worst = max(separation_deg(a, b, c, d) * 3600.0
+                for a, b, c, d in zip(ours[0], ours[1], theirs[0], theirs[1]))
+    assert worst < 1.0, f"{stem}: worst disagreement {worst:.3f} arcsec"
+
+
+def test_local_solve_beats_the_match_quality_bar(tmp_path):
+    """The metric that actually matters: cross-match separations after the solve.
+
+    Same bar as ``test_astrometry_is_sub_arcsecond`` applies to the shipped ASTAP
+    solution, which measured 0.51 arcsec median on this frame.
+    """
+    pytest.importorskip("astroalign")
+
+    frame = _unsolved_copy("stack_c17_15min", tmp_path)
+    gaia = examples.gaia()
+    wcs = astrometry.solve_local(frame, gaia)
+
+    ext = photometry.extract_sources(frame)
+    ext.match_gaia(gaia, wcs=wcs)
+    mq = astrometry.match_quality(ext.band("G"))
+    assert mq["median_arcsec"] < 1.0
+    assert mq["matched_frac"] > 0.6
+
+
+def test_local_solve_handles_a_frame_with_no_wcs_at_all(tmp_path):
+    """A native Seestar stack carries a pointing but no WCS, so this is the real case.
+
+    Asserted rather than assumed, because if these frames ever gain a header WCS the
+    bootstrap would stop being exercised on real data without any test failing.
+    """
+    frame = _unsolved_copy("stack_c17_15min", tmp_path)
+    assert astrometry._header_wcs(frame) is None
+    assert frame.header.get("RA") is not None
+
+
+def test_the_seestar_image_is_mirrored(tmp_path):
+    """The parity the solver seeds with, pinned against real data.
+
+    A Seestar's solved CD matrix has a *positive* determinant -- right ascension
+    increases with x, the opposite of the usual convention. A similarity transform
+    cannot express a reflection, so getting this wrong makes the asterism match fail
+    outright rather than merely drift. ``astrometry.SEED_PARITY`` tries this one first.
+    """
+    for stem in ("stack_c17_15min", "crowdsky_mef"):
+        shipped = astrometry._read_wcs(examples.path(stem + ".wcs"))
+        assert np.linalg.det(shipped.pixel_scale_matrix) > 0, stem
+    assert astrometry.SEED_PARITY[0] > 0
+
+
 # --- the project/pipeline path over bundled frames -------------------------------------
 
 def test_pipeline_runs_end_to_end_on_bundled_frames(tmp_path):

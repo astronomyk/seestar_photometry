@@ -49,6 +49,9 @@ Changelog = "https://github.com/astronomyk/seestar_photometry/blob/master/CHANGE
 plot = ["matplotlib"]
 # Local stacking of raw sub-exposures: registration + warping.
 stack = ["astroalign>=2.6.2", "scikit-image"]
+# The offline reference catalogue and the plate solver that reads it. `astroalign` is
+# here as well as in `stack` because the solver bootstraps on its asterism matcher.
+catalog = ["pyarrow>=14", "astropy-healpix", "astroalign>=2.6.2"]
 notebook = ["matplotlib", "jupyterlab"]
 docs = ["sphinx>=7", "myst-parser", "furo", "matplotlib"]
 dev = [
@@ -57,6 +60,8 @@ dev = [
     "pytest-cov",
     "astroalign>=2.6.2",
     "scikit-image",
+    "pyarrow>=14",
+    "astropy-healpix",
     "build",
     "twine",
 ]
@@ -67,6 +72,10 @@ packages = ["src/seestar_photometry"]
 # The example data is NOT shipped. 18 MB of FITS in a package every user installs is rude
 # to PyPI; `examples.download()` fetches it from a GitHub release asset on first use and
 # caches it. See src/seestar_photometry/examples.py.
+
+# Nor is the offline Gaia catalogue, for the same reason several orders of magnitude over:
+# it is multi-GB. `gaiadb.download()` fetches only the sky a project needs. It is opt-in --
+# nothing in a default install touches it. See src/seestar_photometry/gaiadb.py.
 
 # The sdist carries the tests and docs too, so a downstream packager can run the suite.
 [tool.hatch.build.targets.sdist]

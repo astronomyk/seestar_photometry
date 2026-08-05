@@ -60,8 +60,10 @@ class Project:
         sidecar is the one exception -- it lives beside its frame, because it is
         expensive to recompute and useful to every project that touches that frame.)
     solver : str
-        ``"astap"`` (default, local and offline), ``"nova"`` (astrometry.net), or
-        ``"lift"`` for frames that already carry a trustworthy header solution.
+        ``"astap"`` (default, local and offline), ``"local"`` (anchored on the reference
+        catalogue -- no binary, no network, no index files), ``"nova"``
+        (astrometry.net), or ``"lift"`` for frames that already carry a trustworthy
+        header solution.
     astap_exe : str
         Path to the ASTAP command-line binary.
     enclosed_characterise : float
@@ -90,6 +92,19 @@ class Project:
         without adding usable calibrators.
     match_tol_arcsec : float
         Cross-match radius.
+    catalogue_backend : str
+        Where the reference catalogue comes from. ``"auto"`` (default) uses the offline
+        copy when :mod:`gaiadb` has this field on disk and falls back to a Gaia TAP
+        query when it does not, so installing the download is the only step needed to
+        stop using the network. ``"local"`` and ``"tap"`` force one or the other;
+        ``"local"`` raises rather than querying, which is what you want on a machine
+        that must not reach the internet.
+    epoch : float
+        Decimal year to propagate catalogue positions to, e.g. ``2026.4``. Gaia
+        positions are J2016.0, and a decade of proper motion moves the fastest stars by
+        more than ``match_tol_arcsec``. Only the local backend can do this -- the TAP
+        query does not fetch proper motions -- so it is ignored with a TAP catalogue.
+        ``None`` leaves positions at the Gaia epoch.
     provenance : callable, optional
         ``provenance(frame) -> dict`` of extra frame-table columns (dataset name,
         stacking manifest fields, ...). Keeps project bookkeeping out of the core
@@ -109,6 +124,8 @@ class Project:
     catalogue_tiles: int = 1
     gmag_limit: float = 17.0
     match_tol_arcsec: float = 2.0
+    catalogue_backend: str = "auto"
+    epoch: float = None
     provenance: object = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -157,11 +174,46 @@ class Project:
         """Keys of every frame in the source, in deterministic order."""
         return list(self.source.keys())
 
+    @property
+    def catalogue_radius_deg(self):
+        """Cone radius covering the whole catalogue box, corners included.
+
+        The same figure :func:`catalogs.fetch_gaia_mosaic` computes for a single tile,
+        so the two backends cover the same sky and can be compared row for row.
+        """
+        return self.catalogue_half_deg * 2 ** 0.5 + 0.1
+
+    def catalogue_backend_used(self):
+        """Which backend :meth:`catalogue` would use. Touches no network."""
+        if self.catalogue_backend != "auto":
+            return self.catalogue_backend
+        from . import gaiadb
+
+        return "local" if gaiadb.covers(
+            self.target.radec, self.catalogue_radius_deg) else "tap"
+
     def catalogue(self, overwrite=False):
-        """Load (or build once) the cached reference catalogue for this field."""
+        """Load (or build once) the cached reference catalogue for this field.
+
+        Either backend writes the same ECSV to :attr:`catalogue_path`, so everything
+        downstream is unaffected by which one ran.
+        """
         from . import catalogs
 
         self.ensure_dirs()
+        if self.catalogue_path.exists() and not overwrite:
+            return catalogs.load_catalogue(self.catalogue_path)
+
+        if self.catalogue_backend_used() == "local":
+            from . import gaiadb
+
+            catalogue = gaiadb.cone(
+                self.target.radec, self.catalogue_radius_deg,
+                gmag_limit=self.gmag_limit, epoch=self.epoch,
+            )
+            catalogue.write(self.catalogue_path, format="ascii.ecsv", overwrite=True)
+            return catalogue
+
         return catalogs.fetch_gaia_mosaic(
             self.target.radec, self.catalogue_path,
             half_size_deg=self.catalogue_half_deg, n_tiles=self.catalogue_tiles,

@@ -78,12 +78,15 @@ class Extraction:
     cogs: list = field(default=None, repr=False)
     frame: object = field(default=None, repr=False)
 
-    def solve_wcs(self, api_key=None, force=False, solver="nova"):
+    def solve_wcs(self, api_key=None, force=False, solver="nova", catalogue=None):
         """Solve (or load cached) the frame's WCS from this source catalogue.
 
         Reuses the green-band detections as the solver's source list, so no second
         extraction is needed. The solution is cached as a ``.wcs`` sidecar next to
         the FITS file. Returns an :class:`astropy.wcs.WCS`.
+
+        ``catalogue`` is the reference table ``solver="local"`` pairs against, and is
+        ignored by the other solvers.
         """
         from . import astrometry
 
@@ -93,7 +96,7 @@ class Extraction:
         order = np.argsort(np.asarray(g["flux"]))[::-1]  # brightest first
         return astrometry.solve_from_sources(
             self.frame, np.asarray(g["x"])[order], np.asarray(g["y"])[order],
-            api_key=api_key, force=force, solver=solver,
+            api_key=api_key, force=force, solver=solver, catalogue=catalogue,
         )
 
     def match_gaia(self, gaia, wcs=None, tol_arcsec=2.0):

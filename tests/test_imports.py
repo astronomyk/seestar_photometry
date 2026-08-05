@@ -39,6 +39,21 @@ def test_import_does_not_pull_in_astroquery():
     assert out == "False"
 
 
+def test_import_does_not_pull_in_the_catalog_extra():
+    """``pyarrow`` and ``astropy_healpix`` back an opt-in multi-GB download.
+
+    A core install has neither, and ``gaiadb`` is eagerly imported by the package, so
+    every one of its imports has to sit inside a function. ``astroalign`` is here too:
+    it was only the stacking extra until the local solver started bootstrapping on it.
+    """
+    out = _run(
+        "import sys, seestar_photometry; "
+        "print([m for m in ('pyarrow', 'astropy_healpix', 'astroalign') "
+        "if m in sys.modules])"
+    )
+    assert out == "[]"
+
+
 def test_plots_module_imports_without_matplotlib_at_module_level():
     """``plots`` is eagerly imported by the package, so it must stay import-light."""
     out = _run(

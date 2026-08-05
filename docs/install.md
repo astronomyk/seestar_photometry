@@ -42,10 +42,11 @@ In CI, cache that directory keyed on the dataset version — see `.github/workfl
 |---|---|---|
 | `plot` | `matplotlib` | Any diagnostic figure — `plots`, `report` |
 | `stack` | `astroalign`, `scikit-image` | Stacking raw sub-exposures |
+| `catalog` | `pyarrow`, `astropy-healpix`, `astroalign` | The offline Gaia catalogue and `solver="local"` |
 | `dev` | the above, plus `pytest` | Running the test suite |
 
 ```bash
-pip install "seestar-photometry[plot,stack]"
+pip install "seestar-photometry[plot,stack,catalog]"
 ```
 
 `matplotlib` is an extra rather than a dependency because the measurement path is imported
@@ -53,10 +54,70 @@ by batch jobs on headless machines; it is imported lazily, so `import seestar_ph
 never needs it. In practice you almost certainly want it — the diagnostics are how you
 check a reduction.
 
+## The offline Gaia catalogue
+
+Optional, and much larger than the example data. It removes the Gaia TAP query — the
+least reliable step in the pipeline — and it is what `solver="local"` pairs against.
+
+```bash
+pip install "seestar-photometry[catalog]"
+```
+
+```python
+from seestar_photometry import gaiadb
+
+gaiadb.download(center=(186.68, 81.47), radius_deg=5)   # just this patch of sky
+gaiadb.download()                                        # or the whole thing
+```
+
+Fetching per region is the point of the layout: the catalogue is partitioned into 12288
+HEALPix tiles, so a few observing fields cost tens of MB rather than the full multi-GB
+set. Its own cache location, so it can live on a different disk from the example data:
+
+| | |
+|---|---|
+| `SEESTAR_GAIA_DATA` | an explicit directory — set this and nothing is downloaded |
+| `XDG_CACHE_HOME` / `LOCALAPPDATA` | the platform cache location |
+| otherwise | `~/.cache/seestar-photometry` |
+
+Nothing has to be configured to use it. `Project` defaults to
+`catalogue_backend="auto"`, which uses the local copy when it covers the field and falls
+back to a TAP query when it does not — so installing the download is the only step.
+Force one or the other with `catalogue_backend="local"` (raises rather than reaching the
+network, which is what you want on a machine that must not) or `"tap"`.
+
+It also carries proper motions, which the TAP query does not fetch at all. Gaia
+positions are J2016.0, and by 2026 a 100 mas/yr star has moved 1 arcsec — half the
+default match tolerance:
+
+```python
+Project(..., epoch=2026.4)      # propagate to the observing season
+```
+
+To build a catalogue for one field yourself instead of downloading, from a source
+checkout:
+
+```bash
+uv run python tools/build_gaia_catalogue.py --ra 186.6821 --dec 81.474 --radius 3
+```
+
 ## A plate solver
 
 The on-board Seestar WCS is not accurate enough for photometry (see
-[astrometry-and-gaia](astrometry-and-gaia.md)), so frames must be re-solved. Two options:
+[astrometry-and-gaia](astrometry-and-gaia.md)), so frames must be re-solved. Three
+options:
+
+**The local solver** — no binary, no network, no index files, and about half a second per
+frame. It pairs detections against the reference catalogue the pipeline already needs,
+so the only requirement is having that catalogue: either the offline download above, or
+a cached TAP one from a previous run.
+
+```python
+Project(..., solver="local")
+```
+
+Because it is anchored rather than blind it needs the frame's header pointing, which
+every Seestar writes. For a frame with no pointing at all, use ASTAP.
 
 **ASTAP** — the default. Local, offline, about a second per frame, no key, no rate limit.
 [Download](https://www.hnsky.org/astap.htm) it plus a star database (`D50` is plenty), then

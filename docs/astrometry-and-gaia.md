@@ -2,9 +2,15 @@
 
 ## The on-board WCS is unusable
 
-Every Seestar frame arrives with a WCS in its header. It is **not** photometric-grade:
-positions are wrong by tens of pixels (~1 arcmin), which drops the catalogue match rate to
-a few percent and makes forced photometry meaningless — the aperture lands on empty sky.
+What a frame arrives with depends on who wrote it, and neither case is good enough:
+
+- A **native Seestar stack** carries the pointing (`RA`/`DEC`) and the optics keywords, but
+  no WCS at all — verified on every bundled example frame, none of which has a `CRVAL`.
+- Where a header WCS *is* present it is **not** photometric-grade: positions are wrong by
+  tens of pixels (~1 arcmin), which drops the catalogue match rate to a few percent and
+  makes forced photometry meaningless — the aperture lands on empty sky.
+
+The exception is CrowdSky, which plate-solves server-side and says so with `PLTSOLVD`.
 
 So every frame is re-solved, and the solution is cached as a `.wcs` sidecar (a header-only
 FITS) **next to the FITS file**. That location is deliberate and is the one exception to
@@ -15,9 +21,47 @@ A good solve gives a **median cross-match separation of ~0.8 arcsec**. The
 `*_match_sep` diagnostic panel is how you check: a distribution filling the match tolerance,
 or pressed against it, means the solve is wrong even though it "succeeded".
 
-## Two solvers, one sidecar
+## Three solvers, one sidecar
 
 `astrometry.solve(frame, solver=...)`:
+
+**`"local"`** — anchored on the reference catalogue rather than on an index of quads, and
+**not a blind solver, because it does not need to be.** The pointing is wrong by about an
+arcmin, not by degrees, so the field is already known; what is left is a refinement. That
+makes it the only solver with no external dependency of any kind — no binary, no network,
+no index files — and the fastest, at **0.4–0.7 s per frame** against ASTAP's ~1 s.
+
+Two routes to an approximate solution, tried in order:
+
+1. **The header WCS**, when there is one. Tens of pixels of error is far coarser than
+   photometry needs but far finer than a nearest-neighbour match needs, so this converges
+   immediately. It is used as a *starting point*, never trusted — that is what separates it
+   from `"lift"`.
+2. **Asterism matching**, when there is no header WCS (every native stack, and anything
+   `stacking.stack_frame` produced) or when route 1 fails to pair enough sources. Catalogue
+   positions are projected through a crude TAN seed built from the pointing and the nominal
+   plate scale, which reduces the problem to two point clouds differing by a rotation, a
+   small scale error and a shift — what astroalign's triangle matcher already solves between
+   raw subs in `stacking`.
+
+Either way the approximate solution is only a seed: the returned WCS is a least-squares fit
+(`astropy.wcs.utils.fit_wcs_from_points`) over every matched pair, iterated with a tightening
+tolerance, and rejected outright if too few pairs survive. Measured against the ASTAP
+solutions shipped with the example data, the worst disagreement over four frames is **0.37
+arcsec** — a sixth of a pixel — and the cross-match medians (0.41–0.49 arcsec) are better
+than ASTAP's 0.51 arcsec on the same frames.
+
+> **The Seestar image is mirrored.** Its solved CD matrix has a *positive* determinant:
+> right ascension increases with *x*, the opposite of the usual north-up/east-left
+> convention. This matters more than it sounds. A similarity transform cannot express a
+> reflection, so seeding with the wrong parity does not merely slow the match down — it
+> makes it impossible, and astroalign exhausts every triangle it has before failing.
+> `astrometry.SEED_PARITY` therefore tries the mirrored orientation first and the
+> conventional one second. Measured on a bundled stack: 0.3 s to match on the right parity,
+> 7 s to fail on the wrong one.
+
+Field rotation is the other thing the matcher has to absorb, and it is large: a bundled
+15-minute c17 stack needed **33 degrees** of it. Any shift-only refinement would fail here.
 
 **`"astap"` (default)** — a local, fully offline blind plate solver. It does its own star
 detection, handles Alt-Az field rotation, and takes about a second per frame. This is the
@@ -79,6 +123,52 @@ Defaults: a `2 × 1.5°` box, **one** cone, `phot_g_mean_mag < 17`.
   build is retried. **The cache is only written on full success**: a partial mosaic silently
   missing a tile is much worse than a failed build, because every frame in that region would
   lose its calibration stars with no error raised.
+
+### Two backends, one cache
+
+`Project.catalogue()` builds that ECSV either from the TAP query above or from an offline
+copy of Gaia (`gaiadb`), and writes the same file either way, so nothing downstream can tell
+which ran. `catalogue_backend="auto"` (the default) uses the offline copy when it covers the
+field — installing the download is the only step needed to stop using the network.
+
+The offline copy exists because **the TAP query is the least reliable thing the package
+does**, and because a catalogue that is already on disk is what makes `solver="local"`
+possible at all: a per-field query cannot solve the frame it is needed for.
+
+Its shape, and the reasoning:
+
+- **Rows are GSPC sources only** (those with synthetic photometry, G < 17.65), cut at
+  V < 17.5. Restricting to sources that *have* synthetic V means every row is a usable
+  calibrator with nothing masked in the columns that matter. Cutting on V rather than G
+  costs only the ~10–15% of rows red enough for V to fall below G, and buys a faint limit
+  that means something in the science band. About 195M rows.
+- **Columns are what the package reads plus what it is about to want**, and no more: every
+  extra float32 is ~0.5 GB over the full sky. Beyond the TAP set that means proper motions,
+  `c_star` and `ipd_frac_multi_peak` (blend indicators — at 2.4 arcsec/px with a ~10 arcsec
+  FWHM, blended comparisons are the norm), `ruwe` and `non_single_star` (unresolved
+  binaries), `teff_gspphot`, and `v_jkc_flag`, which is Gaia's own statement that the
+  synthetic V is inside its validated range.
+- **Partitioned into 12288 HEALPix level-5 tiles**, so a partial copy is worth having: three
+  observing fields cost tens of MB rather than the whole set. The partition key is free —
+  a Gaia `source_id` already encodes its level-12 nested index, so `source_id >> 49` *is*
+  the tile.
+
+> **A cone query must read more sky than it asks for.** Completeness requires every tile
+> whose *centre* lies within `radius + 1.91°`, because a tile is not a circle and its
+> farthest corner is that far from its centre. Anything tighter silently drops sources
+> instead of raising — and `astropy_healpix.cone_search_lonlat` is tighter, which is why it
+> is not used. The exact cut afterwards removes the surplus, so the cost is I/O and never
+> accuracy: measured over-read for a 1.5° cone is 12.4× the ideal at level 4, 5.1× at level
+> 5, 2.7× at level 6. Level 5 is the compromise — level 6 would quadruple the file count to
+> 49152 and shrink the parts below the size Parquet is efficient at.
+
+### Proper motion
+
+The TAP query does not fetch proper motions, so it cannot correct for them. Gaia DR3
+positions are J2016.0; by 2026 a star with a 100 mas/yr proper motion has moved **1 arcsec**,
+half the default 2 arcsec match tolerance, and the fastest movers are lost entirely. The
+offline catalogue carries `pmra`/`pmdec`, and `Project(epoch=2026.4)` propagates positions
+to the observing season. Left unset, positions stay at the Gaia epoch — today's behaviour.
 
 ### Why Gaia synthetic V
 

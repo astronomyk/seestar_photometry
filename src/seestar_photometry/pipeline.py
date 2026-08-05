@@ -162,14 +162,16 @@ def _solve_one(key, project):
 
     # Only the network/subprocess solve is retried; a failed extraction is not
     # transient, and re-running SEP on every attempt would multiply the cost of a
-    # frame that was never going to solve.
-    attempts = 4 if project.solver == "nova" else 2
+    # frame that was never going to solve. A local solve is deterministic, so retrying
+    # it is pure waste -- it would fail identically.
+    attempts = 4 if project.solver == "nova" else 1 if project.solver == "local" else 2
     last = None
     for attempt in range(attempts):
         try:
             astrometry.solve(
                 frame, solver=project.solver, api_key=project.api_key,
                 astap_exe=project.astap_exe, thresh=project.thresh,
+                catalogue=_CATALOGUE,
             )
             return key, "solved", None
         except Exception as exc:
@@ -201,12 +203,22 @@ def solve_all(project, workers=None, force=False, limit=None):
     if not keys:
         return dict.fromkeys(STATUSES, 0), []
 
+    # The local solver pairs against the reference catalogue, so unlike the other
+    # backends this stage needs it -- built once here in the parent, then loaded once
+    # per worker like the later stages do.
+    catalogue_path = None
+    if project.solver == "local":
+        catalogue_path = project.catalogue_path
+        if not catalogue_path.exists():
+            project.catalogue()
+
     if project.solver == "nova":
         pool, workers = "thread", min(workers or 4, 4)
     else:
         pool, workers = "process", workers or max((os.cpu_count() or 4) - 2, 1)
     counts, problems = _run(
         project, _solve_one, keys, workers=workers, pool=pool, label="solve",
+        catalogue_path=catalogue_path,
     )
     return counts, problems
 

@@ -32,6 +32,7 @@ from . import (
     depth,
     examples,
     frames,
+    gaiadb,
     kron,
     lightcurves,
     photometry,
@@ -57,8 +58,8 @@ except Exception:  # running from a source tree with no install
 __all__ = [
     # submodules
     "astrometry", "calibration", "catalogs", "contamination", "debayer", "depth",
-    "examples", "frames", "kron", "lightcurves", "photometry", "pipeline", "plots", "project",
-    "quality", "report", "stacking",
+    "examples", "frames", "gaiadb", "kron", "lightcurves", "photometry", "pipeline",
+    "plots", "project", "quality", "report", "stacking",
     # the names you actually reach for
     "BANDS", "LocalTree", "Project", "SeestarFrame", "Target", "load_frame",
 ]

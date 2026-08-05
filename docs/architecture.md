@@ -37,6 +37,7 @@ Each module imports only from layers above it.
 | inspect | `_style` | The one place figure colours, markers and rc settings are decided |
 | cross-check | `kron` | Kron/AUTO photometry — never the science path |
 | support | `examples` | The on-demand real dataset every doc example and real-data test runs on |
+| support | `gaiadb` | The opt-in offline Gaia catalogue: HEALPix-partitioned Parquet, cone queries, epoch propagation |
 
 ## Conventions, and why
 
