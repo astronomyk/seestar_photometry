@@ -18,7 +18,8 @@ download from the Gaia archive (the per-HEALPix ``gaia_source`` and
 is already shared -- :func:`gaiadb.write_dataset` takes whatever table it is handed --
 so the remaining work is the fetch-and-join, not the layout.
 
-Maintenance script, not shipped in the wheel.
+Maintenance script, not shipped in the wheel. ``tools/HOSTING.md`` covers the deployment:
+where the built dataset goes, and what a full-sky build would take.
 
 Output goes to ``--out`` (default: a directory named for the dataset under the cache
 :mod:`gaiadb` reads from, so a build is immediately live).

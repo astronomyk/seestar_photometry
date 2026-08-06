@@ -83,8 +83,9 @@ DATA_VERSION = "v1"
 DATASET = f"gaia-seestar-{DATA_RELEASE}-{DATA_VERSION}"
 
 #: Where to fetch parts from. Overridden by ``SEESTAR_GAIA_URL``, which is how you point
-#: at a staging host or a ``file://`` copy without editing code.
-BASE_URL = f"https://homepage.univie.ac.at/kieran.leschinski/seestar/{DATASET}"
+#: at a staging host or a ``file://`` copy without editing code. Shares a host with
+#: :data:`astap.BASE_URL`; see ``tools/HOSTING.md``.
+BASE_URL = f"https://crowdsky.univie.ac.at/seestar/{DATASET}"
 
 #: HEALPix order of the partitioning. See the module docstring for why 5.
 HPX_LEVEL = 5

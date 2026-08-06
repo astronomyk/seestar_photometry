@@ -49,8 +49,9 @@ VERSION = "2026.07.16"
 #: which is how you point at a staging host or a ``file://`` copy without editing code.
 #:
 #: Mirrored rather than fetched from upstream because SourceForge's download URLs are
-#: redirect-heavy and version-stamped, so they rot; MPL-2.0 permits the copy.
-BASE_URL = "https://homepage.univie.ac.at/kieran.leschinski/seestar/astap"
+#: redirect-heavy and version-stamped, so they rot; MPL-2.0 permits the copy. Shares a
+#: host with :data:`gaiadb.BASE_URL`; see ``tools/HOSTING.md``.
+BASE_URL = "https://crowdsky.univie.ac.at/seestar/astap"
 
 #: Filename of the checksum manifest on the mirror.
 MANIFEST = "MANIFEST.json"

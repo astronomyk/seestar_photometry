@@ -28,7 +28,8 @@ Then::
         --binary macos_arm64=astap_command-line_version_macOS_M1.zip \\
         --database d05=d05_star_database.zip
 
-and upload the contents of ``mirror/`` to the path in ``astap.BASE_URL``.
+and upload the contents of ``mirror/`` to the path in ``astap.BASE_URL``. The whole
+deployment, including where the files go and how to verify one, is in ``tools/HOSTING.md``.
 
 Every archive is checked for the executable it is supposed to contain before it is
 accepted, so a mislabelled platform fails here rather than on a user's machine.
