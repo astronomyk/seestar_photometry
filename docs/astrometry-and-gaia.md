@@ -120,7 +120,18 @@ pairs almost nothing proportionally (measured at 2% on a sub that came out 65″
 spurious. An absolute floor is not enough on a rich field, where a few thousand detections
 against a few thousand catalogue sources throw up coincidences whatever the WCS says.
 
-**`"astap"` (default)** — a local, fully offline blind plate solver. It does its own star
+**`"astap"` (default)** — a local, fully offline blind plate solver. Nothing needs
+configuring: `astap.executable` looks for `astap_cli` or `astap` on `PATH` before falling
+back to a copy `astap.download()` fetched, and only then to the stock Windows location. The
+old default was a hardcoded `C:\Program Files` path, which meant every non-Windows user had
+to set `astap_exe=` by hand even after `apt install astap-cli`.
+
+There is no PyPI package that bundles ASTAP — `astapy` wraps the CLI but still expects a
+manual install, which is the problem rather than the solution — so the fetch is a mirror of
+the upstream binaries. ASTAP is MPL-2.0, so that is allowed, and it is mirrored rather than
+hot-linked because SourceForge's URLs are version-stamped and rot. The database is passed
+with `-d`, but **only when this package fetched it**: a system ASTAP already knows where its
+own database is, and overriding that would be presumptuous. It does its own star
 detection, handles Alt-Az field rotation, and takes about a second per frame. This is the
 right default: no rate limit, no network failure mode, no API key. Implementation notes:
 - solves on a temporary 2-D copy of the **green plane**, with the header pointing and field

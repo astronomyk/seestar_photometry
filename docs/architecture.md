@@ -38,6 +38,7 @@ Each module imports only from layers above it.
 | cross-check | `kron` | Kron/AUTO photometry — never the science path |
 | support | `examples` | The on-demand real dataset every doc example and real-data test runs on |
 | support | `gaiadb` | The opt-in offline Gaia catalogue: HEALPix-partitioned Parquet, cone queries, epoch propagation |
+| support | `astap` | Locating the ASTAP solver, and fetching one when there is none |
 
 ## Conventions, and why
 

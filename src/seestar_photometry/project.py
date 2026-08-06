@@ -13,7 +13,6 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .astrometry import ASTAP_EXE
 from .calibration import FIT_MAG_RANGE
 
 
@@ -64,8 +63,11 @@ class Project:
         catalogue -- no binary, no network, no index files), ``"nova"``
         (astrometry.net), or ``"lift"`` for frames that already carry a trustworthy
         header solution.
-    astap_exe : str
-        Path to the ASTAP command-line binary.
+    astap_exe : str, optional
+        Path to the ASTAP command-line binary. Leave unset and it is located
+        automatically: ``$ASTAP_EXE``, then ``PATH`` (which covers ``apt install
+        astap-cli`` and any manual install), then a copy fetched by
+        :func:`astap.download`, then the stock Windows location.
     enclosed_characterise : float
         Enclosed-flux fraction sizing the aperture for frame characterisation.
         0.90 is the documented default and what the published depth numbers use.
@@ -115,7 +117,7 @@ class Project:
     source: object
     work_dir: str
     solver: str = "astap"
-    astap_exe: str = ASTAP_EXE
+    astap_exe: str = None
     enclosed_characterise: float = 0.90
     enclosed_lightcurve: float = 0.95
     fit_mag_range: tuple = FIT_MAG_RANGE

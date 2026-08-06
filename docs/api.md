@@ -12,6 +12,7 @@ detail — this page is the map.
 | measure | `catalogs` | Cached Gaia mosaic, footprint subsetting, cross-match |
 | measure | `stacking` | Register and co-add raw subs |
 | support | `gaiadb` | The offline Gaia catalogue: an opt-in local copy of the TAP query |
+| support | `astap` | Locating the ASTAP solver, and fetching one when there is none |
 | calibrate | `calibration` | Zero point + colour term; limiting and saturation magnitudes |
 | calibrate | `quality` | The frame-table row |
 | science | `lightcurves` | Timing, comparison selection, ensemble differential, periods |
@@ -39,6 +40,7 @@ Three conventions hold everywhere:
 .. automodule:: seestar_photometry.debayer
 .. automodule:: seestar_photometry.examples
 .. automodule:: seestar_photometry.gaiadb
+.. automodule:: seestar_photometry.astap
 ```
 
 ## Measurement

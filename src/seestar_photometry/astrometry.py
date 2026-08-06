@@ -46,7 +46,10 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 
-#: Default location of the ASTAP command-line solver.
+#: Stock Windows install location of the ASTAP command-line solver, kept as the
+#: last-resort guess. Prefer :func:`astap_executable`, which finds a system install on
+#: any platform -- this constant is a Windows path and was the reason ASTAP needed
+#: configuring by hand everywhere else.
 ASTAP_EXE = r"C:\Program Files\astap\astap_cli.exe"
 
 
@@ -147,7 +150,27 @@ def lift(frame, force=False):
     return _write_wcs(wcs.to_header(relax=True), cache)
 
 
-def solve_astap(frame, force=False, astap_exe=ASTAP_EXE, timeout=120, downsample=(2, 0)):
+def astap_executable(astap_exe=None):
+    """Locate the ASTAP solver, or explain how to get one.
+
+    Delegates to :func:`astap.executable`, which checks an explicit path, ``$ASTAP_EXE``,
+    ``PATH``, this package's cache and finally the stock Windows location -- so a system
+    install is picked up with no configuration on any platform.
+    """
+    from . import astap
+
+    found = astap.executable(astap_exe)
+    if found is None:
+        raise RuntimeError(
+            "no ASTAP solver found. Install one (apt install astap-cli, or "
+            "https://www.hnsky.org/astap.htm), or let this package fetch it:\n"
+            "    from seestar_photometry import astap; astap.download()\n"
+            "Alternatively use solver='local', which needs only the reference catalogue."
+        )
+    return found
+
+
+def solve_astap(frame, force=False, astap_exe=None, timeout=120, downsample=(2, 0)):
     """Solve and cache a frame's WCS with the local ASTAP solver.
 
     ASTAP does its own star detection, so it is handed the green plane written to a
@@ -162,6 +185,8 @@ def solve_astap(frame, force=False, astap_exe=ASTAP_EXE, timeout=120, downsample
     import subprocess
     import tempfile
 
+    from . import astap
+
     cache = wcs_cache_path(frame.path)
     if not force and cache.exists() and _read_wcs(cache).has_celestial:
         return _read_wcs(cache)
@@ -171,7 +196,11 @@ def solve_astap(frame, force=False, astap_exe=ASTAP_EXE, timeout=120, downsample
     with tempfile.TemporaryDirectory(prefix="astap_") as td:
         tmp = os.path.join(td, "g.fits")
         fits.PrimaryHDU(data=frame.g.astype("float32")).writeto(tmp, overwrite=True)
-        cmd = [astap_exe, "-f", tmp, "-update"]
+        cmd = [str(astap_executable(astap_exe)), "-f", tmp, "-update"]
+        # Only when this package fetched a database. A system ASTAP already knows where
+        # its own one is, and overriding that would be presumptuous.
+        if astap.has_database():
+            cmd += ["-d", str(astap.database_dir())]
         try:
             cmd += ["-fov", f"{ny * header_pixel_scale(h) / 3600.0:.3f}"]
         except Exception:
@@ -775,7 +804,7 @@ def _brightness(catalogue):
 
 
 def solve_from_sources(frame, x, y, api_key=None, force=False, solver="nova",
-                       astap_exe=ASTAP_EXE, catalogue=None):
+                       astap_exe=None, catalogue=None):
     """Solve using an already-measured source list where the solver can use one.
 
     ASTAP detects its own stars, so the source list is simply ignored there; this
@@ -802,7 +831,7 @@ def _require_catalogue(catalogue):
     return catalogue
 
 
-def solve(frame, solver="astap", api_key=None, force=False, astap_exe=ASTAP_EXE,
+def solve(frame, solver="astap", api_key=None, force=False, astap_exe=None,
           thresh=2.0, catalogue=None):
     """Solve (or load cached) a WCS for a frame. The general entry point.
 

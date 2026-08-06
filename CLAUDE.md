@@ -79,7 +79,7 @@ Each module imports only from layers above it.
 | orchestrate | `project`, `pipeline` |
 | inspect | `plots`, `report`, `_style` |
 | cross-check | `kron` |
-| support | `examples` (on-demand real data), `gaiadb` (the opt-in offline Gaia catalogue) |
+| support | `examples` (on-demand real data), `gaiadb` (the opt-in offline Gaia catalogue), `astap` (finding/fetching the solver) |
 
 ## Three FITS layouts, two header dialects
 

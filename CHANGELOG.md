@@ -29,6 +29,19 @@
   `non_single_star` (unresolved binaries), `teff_gspphot`, and `v_jkc_flag`.
 - `tools/build_gaia_catalogue.py` builds a conforming dataset for one region from TAP,
   which is enough to use the offline path on a field before any full-sky build exists.
+- **ASTAP no longer needs configuring** (`astap`). It is located automatically —
+  `$ASTAP_EXE`, then `astap_cli`/`astap` on `PATH`, then a fetched copy, then the stock
+  Windows location — so `apt install astap-cli` or any manual install is picked up with no
+  `astap_exe=`. `astap.download()` fetches one where there is none: a 1.4 MB binary and a
+  100 MB `d05` star database, mirrored under MPL-2.0, unpacked into the cache, made
+  executable, de-quarantined on macOS and run once to prove it works.
+  `tools/build_astap_mirror.py` assembles the mirror.
+
+### Changed
+
+- `Project.astap_exe` now defaults to `None`, meaning "find it". Passing a path still
+  overrides everything. `astrometry.ASTAP_EXE` remains the stock Windows location but is
+  now only the last resort rather than the default.
 
 ### Fixed
 

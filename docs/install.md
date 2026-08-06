@@ -124,13 +124,37 @@ on an S30pro a minority of raw subs fail to solve at all. They fail loudly, so t
 runner records them and moves on. Pick this one when you would rather not install anything;
 pick ASTAP when you are solving thousands of frames.
 
-**ASTAP** — the default. Local, offline, about a second per frame, no key, no rate limit.
-[Download](https://www.hnsky.org/astap.htm) it plus a star database (`D50` is plenty), then
-point the package at the binary if it is not in the default location:
+**ASTAP** — the default, and the fastest. Local, offline, no key, no rate limit.
+
+You do not have to configure it. The package looks for `astap_cli` or `astap` on `PATH`
+before anything else, so a system install just works:
+
+```bash
+apt install astap-cli          # Debian/Ubuntu; also in the AUR
+```
+
+If you would rather not install a system package, it can fetch its own copy — a 1.4 MB
+binary and a 100 MB star database, into the same cache the other downloads use:
 
 ```python
-Project(..., astap_exe=r"C:\Program Files\astap\astap_cli.exe")
+from seestar_photometry import astap
+
+astap.download()               # once
+astap.executable()             # -> what solve_astap will run
 ```
+
+The star database is ASTAP's own quad index and is **not** the same thing as the Gaia
+reference catalogue above; you need both if you use this solver. `d05` is the default and
+covers 0.6–10° fields, which spans both Seestar models. Pass `database="d20"` (400 MB) if a
+solve is marginal on the S50's narrow axis.
+
+Resolution order, if you want to override it: `Project(astap_exe=...)` → `$ASTAP_EXE` →
+`PATH` → the fetched copy → `C:\Program Files\astap\astap_cli.exe`.
+
+On macOS the downloaded binary is unsigned, so Gatekeeper quarantines it. `astap.download()`
+clears the quarantine attribute and then runs the binary once to check; if it is still
+blocked you get an error naming the command to run. This path is untested on macOS — a
+system install via [the official download](https://www.hnsky.org/astap.htm) avoids it.
 
 **astrometry.net** — the fallback, for frames ASTAP cannot solve. Set an API key:
 

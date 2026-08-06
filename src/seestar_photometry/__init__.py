@@ -24,6 +24,7 @@ what it is.
 """
 
 from . import (
+    astap,
     astrometry,
     calibration,
     catalogs,
@@ -57,7 +58,8 @@ except Exception:  # running from a source tree with no install
 
 __all__ = [
     # submodules
-    "astrometry", "calibration", "catalogs", "contamination", "debayer", "depth",
+    "astap", "astrometry", "calibration", "catalogs", "contamination", "debayer",
+    "depth",
     "examples", "frames", "gaiadb", "kron", "lightcurves", "photometry", "pipeline",
     "plots", "project", "quality", "report", "stacking",
     # the names you actually reach for
