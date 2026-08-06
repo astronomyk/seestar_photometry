@@ -6,13 +6,14 @@
 
 - **A catalogue-anchored plate solver** (`solver="local"`). No external binary, no network
   and no index files: it pairs SEP detections against the reference catalogue the pipeline
-  already needs. Not a blind solver, because it does not need to be — the pointing is wrong
-  by an arcmin, not by degrees, so the job is refinement. It uses the header WCS as a seed
-  where there is one and falls back to asterism matching where there is not, which is every
-  native stack and anything `stacking.stack_frame` produced. Measured against the ASTAP
-  solutions shipped with the example data: worst disagreement 0.37 arcsec over four frames,
-  cross-match medians 0.41–0.49 arcsec against ASTAP's 0.51, at 0.4–0.7 s per frame against
-  ASTAP's ~1 s. `solver="astap"` remains the default, since it needs no catalogue.
+  already needs. Not a blind solver, because it does not need to be — the header pointing
+  says roughly where the telescope looked, so the job is to pin the field down rather than
+  find it. It seeds from the header WCS where there is one and otherwise votes on
+  detection-minus-catalogue offsets over a rotation grid, then fits least-squares over every
+  matched pair. Validated against ASTAP on the MW Cam datasets: the two agree to a median
+  0.47 arcsec on S50 raw subs, 1.12 arcsec on S30pro subs, and 0.30/2.05 arcsec on locally
+  built 600 s stacks — all well under a pixel. `solver="astap"` remains the default: it is
+  several times faster (0.2–0.4 s against 1–7 s) and needs no catalogue.
 - **An offline Gaia catalogue** (`gaiadb`, needs the `catalog` extra): an opt-in download
   that removes the TAP query, the least reliable step in the pipeline. HEALPix level-5
   partitioned Parquet, so a region can be fetched on its own — three fields cost tens of MB

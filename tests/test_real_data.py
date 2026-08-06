@@ -459,8 +459,6 @@ def test_local_solve_reproduces_the_shipped_solution(stem, tmp_path):
     doing the same job. Measured worst case over the four frames: 0.37 arcsec, against
     a 2.39 arcsec pixel.
     """
-    pytest.importorskip("astroalign")
-
     frame = _unsolved_copy(stem, tmp_path)
     assert astrometry.load_wcs(frame) is None, "the copy must start unsolved"
 
@@ -484,8 +482,6 @@ def test_local_solve_beats_the_match_quality_bar(tmp_path):
     Same bar as ``test_astrometry_is_sub_arcsecond`` applies to the shipped ASTAP
     solution, which measured 0.51 arcsec median on this frame.
     """
-    pytest.importorskip("astroalign")
-
     frame = _unsolved_copy("stack_c17_15min", tmp_path)
     gaia = examples.gaia()
     wcs = astrometry.solve_local(frame, gaia)

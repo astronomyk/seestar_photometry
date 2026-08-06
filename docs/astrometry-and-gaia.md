@@ -26,42 +26,99 @@ or pressed against it, means the solve is wrong even though it "succeeded".
 `astrometry.solve(frame, solver=...)`:
 
 **`"local"`** — anchored on the reference catalogue rather than on an index of quads, and
-**not a blind solver, because it does not need to be.** The pointing is wrong by about an
-arcmin, not by degrees, so the field is already known; what is left is a refinement. That
-makes it the only solver with no external dependency of any kind — no binary, no network,
-no index files — and the fastest, at **0.4–0.7 s per frame** against ASTAP's ~1 s.
+**not a blind solver, because it does not need to be.** The pointing tells you roughly where
+the telescope was looking, so the field is already known; what is left is to pin it down.
+That makes it the only solver with no external dependency of any kind — no binary, no
+network, no index files.
 
 Two routes to an approximate solution, tried in order:
 
-1. **The header WCS**, when there is one. Tens of pixels of error is far coarser than
-   photometry needs but far finer than a nearest-neighbour match needs, so this converges
-   immediately. It is used as a *starting point*, never trusted — that is what separates it
-   from `"lift"`.
-2. **Asterism matching**, when there is no header WCS (every native stack, and anything
-   `stacking.stack_frame` produced) or when route 1 fails to pair enough sources. Catalogue
-   positions are projected through a crude TAN seed built from the pointing and the nominal
-   plate scale, which reduces the problem to two point clouds differing by a rotation, a
-   small scale error and a shift — what astroalign's triangle matcher already solves between
-   raw subs in `stacking`.
+1. **The header WCS**, when there is one — which in practice means CrowdSky, since native
+   Seestar frames carry none. It is used as a *starting point*, never trusted; that is what
+   separates it from `"lift"`.
+2. **Voting**, otherwise. The orientation is unknown and the pointing is off by tens of
+   arcmin, but the plate scale is known to about 1%. So for each angle on a 2° grid, the
+   catalogue's predicted pixel positions are rotated and *every* detection-minus-prediction
+   offset is histogrammed. Shared stars pile into one bin; everything else spreads flat. The
+   sharpest peak gives the orientation and the shift, and averaging the pairs in the winning
+   bin gives the shift to well under a pixel. A second, one-dimensional scan then recovers
+   the plate scale.
 
 Either way the approximate solution is only a seed: the returned WCS is a least-squares fit
 (`astropy.wcs.utils.fit_wcs_from_points`) over every matched pair, iterated with a tightening
-tolerance, and rejected outright if too few pairs survive. Measured against the ASTAP
-solutions shipped with the example data, the worst disagreement over four frames is **0.37
-arcsec** — a sixth of a pixel — and the cross-match medians (0.41–0.49 arcsec) are better
-than ASTAP's 0.51 arcsec on the same frames.
+tolerance, and rejected outright if too few pairs survive.
+
+### Why not an asterism matcher
+
+The obvious choice was astroalign's triangle matcher, which `stacking` already uses between
+raw subs. It works on the bundled cutouts and **fails on every real full frame**, and the
+reason is worth recording so it is not tried again.
+
+Triangle invariants are scale-free, so the matcher throws away the one thing we know for
+certain and has to rediscover it. It can also only match the brightest N of each list — and
+the catalogue has to cover the frame's diagonal *plus* the pointing error, which for an S50
+sub is 6.2 deg² against a 0.92 deg² frame. Only ~15% of the brightest catalogue sources are
+on the frame at all, so the two brightness rankings simply disagree. No amount of tuning
+`max_control_points` fixes that; it only makes the failure slower. Voting has no such
+problem, because contamination adds a flat background rather than competing with the signal.
+
+### The things that bite
 
 > **The Seestar image is mirrored.** Its solved CD matrix has a *positive* determinant:
 > right ascension increases with *x*, the opposite of the usual north-up/east-left
-> convention. This matters more than it sounds. A similarity transform cannot express a
-> reflection, so seeding with the wrong parity does not merely slow the match down — it
-> makes it impossible, and astroalign exhausts every triangle it has before failing.
-> `astrometry.SEED_PARITY` therefore tries the mirrored orientation first and the
-> conventional one second. Measured on a bundled stack: 0.3 s to match on the right parity,
-> 7 s to fail on the wrong one.
+> convention. Measured on both an S50 and an S30pro. A rotation cannot express a reflection,
+> so seeding with the wrong parity does not merely slow the search down — it makes it
+> impossible. `astrometry.SEED_PARITY` tries the mirrored orientation first and the
+> conventional one second, and stops as soon as one wins decisively.
 
-Field rotation is the other thing the matcher has to absorb, and it is large: a bundled
-15-minute c17 stack needed **33 degrees** of it. Any shift-only refinement would fail here.
+**The pointing is off by far more than an arcmin.** Measured against ASTAP on raw subs: a
+remarkably constant 9.0 arcmin on every S50 frame tried, and 9.3 to 40.1 arcmin on the
+S30pro. The S50's constancy suggests a fixed offset between the reported pointing and the
+sensor centre rather than mount error. `POINTING_SLACK_ARCMIN` sets how far the search
+reaches.
+
+**Field rotation is large.** A bundled 15-minute c17 stack needed **33 degrees**. Nothing
+shift-only would work.
+
+**The nominal plate scale is not good enough to pair with.** `206.265 × XPIXSZ / FOCALLEN`
+ran 0.8% high on the S50 and 1.5% high on the S30pro against the solved value. On an
+S30pro's 2200-pixel half-diagonal that 1.5% is 33 pixels — further than the typical distance
+to the *wrong* neighbour, so pairing at the field edge would silently pick the wrong star.
+Hence the separate scale scan, and hence the rotation vote using only the core of the frame,
+where the error is small.
+
+**Solving detects at 5σ, not the photometry's 2σ.** `Project.thresh` is kept low on purpose
+so that the SNR cut and not the detection defines the sample. A solver wants the opposite:
+faint detections are below the reference catalogue's limit, so they cannot pair with
+anything and only offer more ways to go wrong. `detect_for_solve` also skips
+`extract_sources` entirely — apertures, curves of growth and forced photometry have no
+bearing on where the stars are, and on a deep S30pro co-add they cost **186 s** against 8 s
+for the detection alone.
+
+### Measured performance
+
+Against ASTAP on the MW Cam datasets, worst-case disagreement over the frame and median
+per-frame wall clock:
+
+| | frames | solved | vs ASTAP (median) | local | ASTAP |
+|---|---|---|---|---|---|
+| S50 raw subs (20 s) | 8 | 8 | 0.47″ | 1.0 s | 0.18 s |
+| S30pro raw subs (30 s) | 8 | 6 | 1.12″ | 2.9 s | 0.36 s |
+| S50 stack (600 s, local) | 1 | 1 | 0.30″ | 2.8 s | 0.16 s |
+| S30pro stack (600 s, local) | 1 | 1 | 2.05″ | 7.2 s | 0.37 s |
+| bundled example stacks | 4 | 4 | 0.09″ | 0.5 s | — |
+
+**ASTAP is several times faster and does not need a catalogue.** It stays the default. The
+local solver earns its place by needing nothing installed, and by being accurate enough that
+the choice is about convenience rather than quality — on the bundled stacks its cross-match
+medians (0.41–0.49″) beat ASTAP's 0.51″ on the same frames.
+
+The two S30pro subs that did not solve failed *loudly*, which is the point: a returned
+solution has to be trustworthy. `MIN_PAIR_FRACTION` is what enforces that — a wrong solve
+pairs almost nothing proportionally (measured at 2% on a sub that came out 65″ off) against
+18–55% for every correct one, including a cloud-affected frame where most detections are
+spurious. An absolute floor is not enough on a rich field, where a few thousand detections
+against a few thousand catalogue sources throw up coincidences whatever the WCS says.
 
 **`"astap"` (default)** — a local, fully offline blind plate solver. It does its own star
 detection, handles Alt-Az field rotation, and takes about a second per frame. This is the

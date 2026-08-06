@@ -49,9 +49,8 @@ Changelog = "https://github.com/astronomyk/seestar_photometry/blob/master/CHANGE
 plot = ["matplotlib"]
 # Local stacking of raw sub-exposures: registration + warping.
 stack = ["astroalign>=2.6.2", "scikit-image"]
-# The offline reference catalogue and the plate solver that reads it. `astroalign` is
-# here as well as in `stack` because the solver bootstraps on its asterism matcher.
-catalog = ["pyarrow>=14", "astropy-healpix", "astroalign>=2.6.2"]
+# The offline reference catalogue, and the plate solver that reads it.
+catalog = ["pyarrow>=14", "astropy-healpix"]
 notebook = ["matplotlib", "jupyterlab"]
 docs = ["sphinx>=7", "myst-parser", "furo", "matplotlib"]
 dev = [

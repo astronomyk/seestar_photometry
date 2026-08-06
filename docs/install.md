@@ -42,7 +42,7 @@ In CI, cache that directory keyed on the dataset version — see `.github/workfl
 |---|---|---|
 | `plot` | `matplotlib` | Any diagnostic figure — `plots`, `report` |
 | `stack` | `astroalign`, `scikit-image` | Stacking raw sub-exposures |
-| `catalog` | `pyarrow`, `astropy-healpix`, `astroalign` | The offline Gaia catalogue and `solver="local"` |
+| `catalog` | `pyarrow`, `astropy-healpix` | The offline Gaia catalogue and `solver="local"` |
 | `dev` | the above, plus `pytest` | Running the test suite |
 
 ```bash
@@ -107,17 +107,22 @@ The on-board Seestar WCS is not accurate enough for photometry (see
 [astrometry-and-gaia](astrometry-and-gaia.md)), so frames must be re-solved. Three
 options:
 
-**The local solver** — no binary, no network, no index files, and about half a second per
-frame. It pairs detections against the reference catalogue the pipeline already needs,
-so the only requirement is having that catalogue: either the offline download above, or
-a cached TAP one from a previous run.
+**The local solver** — no binary, no network, no index files. It pairs detections against
+the reference catalogue the pipeline already needs, so the only requirement is having that
+catalogue: either the offline download above, or a cached TAP one from a previous run.
 
 ```python
 Project(..., solver="local")
 ```
 
-Because it is anchored rather than blind it needs the frame's header pointing, which
-every Seestar writes. For a frame with no pointing at all, use ASTAP.
+Because it is anchored rather than blind it needs the frame's header pointing, which every
+Seestar writes. For a frame with no pointing at all, use ASTAP.
+
+Accuracy is comparable to ASTAP — on real MW Cam data the two agree to 0.5–2 arcsec, well
+under a pixel — but it is **several times slower** (1–7 s per frame against 0.2–0.4 s), and
+on an S30pro a minority of raw subs fail to solve at all. They fail loudly, so the batch
+runner records them and moves on. Pick this one when you would rather not install anything;
+pick ASTAP when you are solving thousands of frames.
 
 **ASTAP** — the default. Local, offline, about a second per frame, no key, no rate limit.
 [Download](https://www.hnsky.org/astap.htm) it plus a star database (`D50` is plenty), then

@@ -241,11 +241,82 @@ def solve_nova(frame, x, y, api_key=None, force=False, scale_err=10.0, timeout=3
 
 # --- the catalogue-anchored solver ------------------------------------------------------
 
-#: Catalogue sources and detections fed to the asterism matcher, brightest first.
-#: Triangle matching is combinatorial, and the bright end is where the two lists agree --
-#: a deep catalogue is mostly stars this frame cannot see. Kept equal to astroalign's
-#: ``max_control_points`` below so the truncation happens once, here, and visibly.
-N_ASTERISM = 80
+#: Detections and catalogue sources fed to the bootstrap, brightest first. The catalogue
+#: gets more because it covers more sky than the frame does -- see :func:`_bootstrap`.
+N_BOOTSTRAP_DETECTIONS = 250
+N_BOOTSTRAP_CATALOGUE = 500
+
+#: Fraction of the frame's half-diagonal within which detections are used for the
+#: rotation vote. The nominal plate scale is ~1% out, which displaces a star by ``1% * r``
+#: -- negligible near the centre and tens of pixels at a corner. Voting on the core keeps
+#: the peak sharp; :func:`_best_scale` then recovers the scale from the whole frame.
+VOTE_CORE_FRACTION = 0.55
+
+#: Plate-scale factors scanned once the orientation is known. The nominal scale from
+#: ``XPIXSZ``/``FOCALLEN`` ran 0.8% high on an S50 and 1.5% high on an S30pro against the
+#: solved value, so the grid is centred on 1 and reaches well past both.
+#:
+#: Ordered outwards from 1.0, and the scan only accepts a *strict* improvement, so a tie
+#: keeps the nominal scale. Without that a sparse frame, where many factors pair the same
+#: few sources, picks whichever happened to be first -- in practice the end of the grid.
+SCALE_FACTORS = 1.0 + np.concatenate([[0.0], np.repeat(np.arange(1, 21), 2)
+                                      * np.tile([0.002, -0.002], 20)])
+
+#: Votes at which a parity is accepted without trying the other. Both Seestar models
+#: measured positive (see :data:`SEED_PARITY`), so the second is rarely needed and
+#: skipping it halves the usual cost.
+VOTES_DECISIVE = 40
+
+#: Catalogue sources used in the plate-scale scan, brightest first.
+N_SCALE_SCAN = 2000
+
+#: Most detections carried into the solve, brightest first. A deep wide-field co-add
+#: yields tens of thousands, and the faint tail is below the reference catalogue's limit
+#: -- it cannot pair with anything, and only slows the fit down.
+N_DETECT_MAX = 4000
+
+#: Detection threshold for solving, in background sigma. Deliberately far above
+#: ``photometry``'s, which is kept low so that the SNR cut defines the sample. See
+#: :func:`detect_for_solve`.
+SOLVE_THRESH = 5.0
+
+#: Fraction of detections that must pair with a catalogue source for a solve to be
+#: believed. See the check at the end of :func:`_refine` for the measurements behind it.
+MIN_PAIR_FRACTION = 0.08
+
+#: How far the header pointing may be from the true field centre, in arcmin. This is the
+#: translation the bootstrap has to search over.
+#:
+#: **Not the ~1 arcmin the on-board WCS error suggests.** Measured against ASTAP on real
+#: raw subs: 9.0 arcmin on every S50 frame tried, and 9.3 to 40.1 arcmin on the S30pro.
+#: The S50's constancy suggests a fixed offset between the reported pointing and the
+#: sensor centre rather than mount error, but either way the search has to cover it.
+POINTING_SLACK_ARCMIN = 50.0
+
+#: Rotation grid for the bootstrap, in degrees. Alt-Az frames arrive at any orientation,
+#: so the whole circle is searched. The step is bounded by the histogram bin: a star at
+#: the frame corner moves ``r * step`` under a rotation error, and that has to stay
+#: inside a bin or the vote smears across several.
+ROTATION_STEP_DEG = 2.0
+
+#: Offset-histogram bin, in pixels. Wide enough to absorb the rotation step above plus
+#: the nominal plate scale's error -- measured at 0.8% on the S50 and 1.5% on the S30pro
+#: against the solved value, which displaces a corner star by ~16 px.
+VOTE_BIN_PX = 32.0
+
+#: Fewest votes in the winning bin for a bootstrap to be believed, whatever the
+#: statistics say. A handful of coincidences can look significant against a nearly empty
+#: histogram, which is the sparse-field failure mode.
+MIN_VOTES_FLOOR = 8
+
+#: How far above the random background the winning bin must stand, in standard
+#: deviations of the per-bin Poisson count.
+#:
+#: A fixed vote count cannot work here: the background scales with the number of pairs
+#: and the search area, so a threshold tuned on a 1920x1080 sub (~7 per bin) rejects
+#: every solve on a small sparse frame (~0.3 per bin), and one tuned on the small frame
+#: accepts noise on the large one.
+VOTE_SIGMA = 8.0
 
 #: Sign of ``CDELT1`` to try when seeding, in order.
 #:
@@ -320,80 +391,272 @@ def _pair_up(x, y, cx, cy, tol_px):
     return det[first], cat[first]
 
 
+#: Most pairs handed to a single fit. ``fit_wcs_from_points`` runs a least-squares solve
+#: over every point, and a deep wide-field stack pairs up tens of thousands -- measured
+#: at 191 s for one S30pro co-add, against 6 s once capped. A TAN fit has six free
+#: parameters; several hundred well-spread pairs determine them as well as ten thousand.
+N_FIT_MAX = 600
+
+
 def _fit(x, y, ra, dec, sip_degree=None):
-    """Least-squares TAN fit to matched pixel/sky pairs."""
+    """Least-squares TAN fit to matched pixel/sky pairs.
+
+    Subsampled with a stride rather than a slice when there are too many, so the pairs
+    used stay spread over the frame instead of clustering wherever the bright stars are.
+    """
     import astropy.units as u
     from astropy.coordinates import SkyCoord
     from astropy.wcs.utils import fit_wcs_from_points
 
+    x, y = np.asarray(x), np.asarray(y)
+    ra, dec = np.asarray(ra), np.asarray(dec)
+    if len(x) > N_FIT_MAX:
+        keep = slice(None, None, int(np.ceil(len(x) / N_FIT_MAX)))
+        x, y, ra, dec = x[keep], y[keep], ra[keep], dec[keep]
+
     return fit_wcs_from_points(
-        (np.asarray(x), np.asarray(y)),
-        SkyCoord(np.asarray(ra) * u.deg, np.asarray(dec) * u.deg),
+        (x, y), SkyCoord(ra * u.deg, dec * u.deg),
         projection="TAN", sip_degree=sip_degree,
     )
 
 
-def _refine(wcs, x, y, ra, dec, scale, tol_arcsec, min_match, sip_degree):
+def _tolerance_ladder(start_arcsec, target_arcsec):
+    """Pairing radii stepping down from ``start`` to ``target``, then tightening."""
+    ladder, tol = [], float(start_arcsec)
+    while tol > target_arcsec:
+        ladder.append(tol)
+        tol /= 3.0
+    return ladder + [target_arcsec, target_arcsec / 2.0, target_arcsec / 3.0]
+
+
+def _refine(wcs, x, y, ra, dec, scale, tol_arcsec, min_match, sip_degree,
+            start_arcsec=None):
     """Iterate match-and-fit from an approximate WCS. ``None`` if it never converges.
 
     The tolerance tightens each pass: the first is wide enough to survive the seed's
     error, and later ones drop the false pairs that width let in. Returns the last WCS
     that had enough matches, so a final pass that over-tightens does not throw away a
     good solution.
+
+    ``start_arcsec`` sets how wide the first pass is, and has to reflect where the seed
+    came from. A bootstrap only locates the field to a histogram bin, and the nominal
+    plate scale is ~1% out, which alone displaces a corner star by tens of pixels --
+    starting at the target tolerance would pair almost nothing.
     """
-    best = None
-    for tol in (tol_arcsec, tol_arcsec / 2.0, tol_arcsec / 3.0):
+    for tol in _tolerance_ladder(start_arcsec or tol_arcsec, tol_arcsec):
         cx, cy = wcs.world_to_pixel_values(ra, dec)
         det, cat = _pair_up(x, y, cx, cy, tol / scale)
         if len(det) < min_match:
-            return best
+            return None
         wcs = _fit(x[det], y[det], ra[cat], dec[cat], sip_degree=sip_degree)
-        best = wcs
-    return best
+
+    # Judge the answer at the tolerance that was asked for, not at whatever the last
+    # pass happened to use. Returning the best loose fit instead would hand back a
+    # solution that is right at the field centre and degrees out at the corners -- which
+    # is exactly what a bad plate scale produces, and it reads as success.
+    cx, cy = wcs.world_to_pixel_values(ra, dec)
+    det, _cat = _pair_up(x, y, cx, cy, tol_arcsec / scale)
+
+    # An absolute floor is not enough on a rich field: a few thousand detections against
+    # a few thousand catalogue sources throw up a handful of coincidences within the
+    # tolerance whatever the WCS says, so `min_match` alone accepts nonsense. A *wrong*
+    # solve pairs almost nothing proportionally -- measured at 2% on an S30pro sub that
+    # came out 65 arcsec off, against 18-55% for every correct solve across both models,
+    # including a cloud-affected frame where most detections are spurious.
+    return wcs if len(det) >= max(min_match, MIN_PAIR_FRACTION * len(x)) else None
 
 
-def _bootstrap(frame, x, y, ra, dec):
-    """Recover an approximate WCS with no usable orientation, by asterism matching.
+def detect_for_solve(frame, thresh=SOLVE_THRESH):
+    """Green-plane detections as ``(x, y)``, brightest first. Positions only.
 
-    Catalogue sources are projected through :func:`_seed_wcs` into the pixel frame the
-    image *would* have at zero rotation, which reduces the problem to matching two point
-    clouds differing by a rotation, a small scale error and a shift -- exactly what
-    astroalign's triangle matcher solves, and what it already does between raw subs in
-    :mod:`stacking`. Both parities are tried; see :data:`SEED_PARITY`.
+    Solving needs a source *list*, not photometry, and the difference is not small:
+    :func:`photometry.extract_sources` sizes apertures per band, measures curves of
+    growth and forced-photometers every detection. On a deep S30pro co-add (3840x2160)
+    that measured **186 seconds**, none of which affects where the stars are.
 
-    The matched pairs go straight into a fit and the fitted transform is discarded, so
-    none of astroalign's coordinate conventions have to be reasoned about -- only its
-    pairing is used.
+    The threshold is also higher than the photometry's. The measurement path keeps it
+    low on purpose, so that the SNR cut and not the detection defines the sample; a
+    solver wants the opposite. Detecting at 5 sigma instead of 2 took the same S30pro
+    frame from 49 s to 8 s, and the sources it drops are the faint ones that the
+    reference catalogue does not reach anyway -- they cannot pair with anything, and
+    only offer the matcher more ways to go wrong.
+    """
+    from . import photometry
+
+    _bkg, _sub, objs = photometry._detect(frame.g, thresh)
+    order = np.argsort(np.asarray(objs["flux"]))[::-1][:N_DETECT_MAX]
+    return np.asarray(objs["x"])[order], np.asarray(objs["y"])[order]
+
+
+def _rotate(points, centre, degrees):
+    """Rotate an ``(n, 2)`` array of pixel coordinates about ``centre``."""
+    angle = np.radians(degrees)
+    cos, sin = np.cos(angle), np.sin(angle)
+    offset = points - centre
+    return np.column_stack([
+        offset[:, 0] * cos - offset[:, 1] * sin,
+        offset[:, 0] * sin + offset[:, 1] * cos,
+    ]) + centre
+
+
+def _vote(detections, predicted, half_px, bin_px=VOTE_BIN_PX):
+    """Most popular offset between two point clouds, and how popular it was.
+
+    Every detection is differenced against every predicted position and the offsets are
+    histogrammed. If the two clouds share stars under a pure translation, all those pairs
+    land in one bin and everything else spreads out flat. Returns ``(votes, dx, dy)``.
+
+    Hand-rolled binning rather than ``np.histogram2d``, which is several times slower and
+    is called a few hundred times per frame.
+    """
+    n_bins = max(int(2 * half_px / bin_px), 1)
+    dx = (detections[:, 0][:, None] - predicted[:, 0][None, :]).ravel()
+    dy = (detections[:, 1][:, None] - predicted[:, 1][None, :]).ravel()
+    ix = np.floor((dx + half_px) * (1.0 / bin_px))
+    iy = np.floor((dy + half_px) * (1.0 / bin_px))
+    inside = (ix >= 0) & (ix < n_bins) & (iy >= 0) & (iy < n_bins)
+    if not inside.any():
+        return 0.0, 0.0, 0.0
+
+    flat = (ix[inside] * n_bins + iy[inside]).astype(np.intp)
+    counts = np.bincount(flat, minlength=n_bins * n_bins)
+    peak = int(counts.argmax())
+
+    # The offset of the winning *bin* is only good to half a bin, and the next step pairs
+    # sources at about that radius -- so on a sparse frame the quantisation alone loses
+    # most of the matches. Averaging the pairs that actually voted costs nothing and
+    # gives the shift to well under a pixel.
+    won = flat == peak
+    return (float(counts[peak]),
+            float(dx[inside][won].mean()),
+            float(dy[inside][won].mean()))
+
+
+def _best_scale(x, y, seed_xy, centre, shift, tol_px):
+    """Plate-scale factor that pairs up the most sources, and that pair count.
+
+    The rotation vote deliberately uses only the core of the frame, where the nominal
+    scale being ~1% out barely moves a star. That leaves the scale itself unmeasured, and
+    it cannot be left at nominal: 1.5% of an S30pro's 2200-pixel half-diagonal is 33
+    pixels, which is further than the typical distance to the *wrong* neighbour, so
+    pairing at the edges would silently pick the wrong star.
+
+    Scaling happens about the frame centre, which the shift already places correctly, so
+    the two are independent and a 1-D scan is enough.
     """
     from scipy.spatial import cKDTree
 
-    import astroalign as aa
+    tree = cKDTree(np.column_stack([x, y]))
+    # Bounded: a wide field can put tens of thousands of catalogue sources in range, and
+    # the scan queries the tree once per source per factor. The brightest few thousand
+    # settle a single scalar perfectly well.
+    offset = (seed_xy - centre)[:N_SCALE_SCAN]
+    best = (0, 1.0)
+    for factor in SCALE_FACTORS:
+        placed = offset * factor + centre + shift
+        hits = int(np.isfinite(
+            tree.query(placed, distance_upper_bound=tol_px)[0]
+        ).sum())
+        if hits > best[0]:
+            best = (hits, float(factor))
+    return best[1], best[0]
 
-    detections = np.column_stack([x, y])[:N_ASTERISM]
-    failures = []
+
+def _vote_threshold(n_detections, n_catalogue, half_px, bin_px=VOTE_BIN_PX):
+    """Votes the winning bin must draw to be more than a coincidence.
+
+    The background is flat, so each bin holds ``n_pairs / n_bins`` on average and varies
+    like its square root. See :data:`VOTE_SIGMA`.
+    """
+    n_bins = max(int(2 * half_px / bin_px), 1) ** 2
+    expected = n_detections * n_catalogue / n_bins
+    return max(MIN_VOTES_FLOOR, expected + VOTE_SIGMA * np.sqrt(expected))
+
+
+def _bootstrap(frame, x, y, ra, dec, scale, min_match=8):
+    """Recover an approximate WCS from the pointing alone, by voting on offsets.
+
+    The frame's orientation is unknown -- Alt-Az field rotation reaches tens of degrees
+    -- and the pointing is off by up to :data:`POINTING_SLACK_ARCMIN`. What *is* known is
+    the plate scale, to about 1%. So the unknown is a rotation and a shift, and both are
+    found by brute force: for each angle on a grid, rotate the catalogue's predicted
+    pixel positions and histogram every detection-minus-prediction offset. The angle
+    whose histogram has the sharpest peak is the orientation, and the peak is the shift.
+
+    An asterism matcher (astroalign, as :mod:`stacking` uses between raw subs) was the
+    obvious choice here and does not work, which is worth recording. Triangle invariants
+    discard the known scale, so the matcher has to rediscover it, and it can only match
+    the brightest N of each list. The catalogue has to cover the frame's diagonal *plus*
+    the pointing error, which for an S50 sub is 6.2 square degrees against a 0.92 square
+    degree frame -- so only ~15% of the brightest catalogue sources are in the frame at
+    all, the two brightness rankings disagree, and matching fails on real frames however
+    it is tuned. Voting has no such problem: contamination adds a flat background to the
+    histogram rather than competing with the signal.
+
+    Both parities are tried; see :data:`SEED_PARITY`.
+    """
+    ny, nx = frame.shape
+    centre = np.array([nx / 2.0, ny / 2.0])
+    half_diagonal = 0.5 * np.hypot(ny, nx)
+    # The pointing error plus the frame's own half-diagonal: the furthest a detection can
+    # be from where the seed puts its catalogue counterpart.
+    half_px = (POINTING_SLACK_ARCMIN * 60.0 / scale) + half_diagonal
+
+    core = np.hypot(x - centre[0], y - centre[1]) <= VOTE_CORE_FRACTION * half_diagonal
+    detections = np.column_stack([x[core], y[core]])[:N_BOOTSTRAP_DETECTIONS]
+    if len(detections) < min_match:
+        raise RuntimeError(
+            f"only {len(detections)} detections near the centre of {frame.path}; "
+            "too few to anchor a local solve"
+        )
+    n_catalogue = min(len(ra), N_BOOTSTRAP_CATALOGUE)
+    needed = _vote_threshold(len(detections), n_catalogue, half_px)
+
+    best = (0.0, None, None, None)
     for parity in SEED_PARITY:
-        seed = _seed_wcs(frame, parity)
-        cx, cy = seed.world_to_pixel_values(ra, dec)
-        predicted = np.column_stack([cx, cy])
-        try:
-            _transform, (det_xy, cat_xy) = aa.find_transform(
-                detections, predicted[:N_ASTERISM], max_control_points=N_ASTERISM
-            )
-        except Exception as exc:
-            failures.append(f"parity {parity:+.0f}: {type(exc).__name__}: {exc}")
-            continue
-        _dist, cat = cKDTree(predicted).query(np.asarray(cat_xy))
-        return _fit(det_xy[:, 0], det_xy[:, 1], ra[cat], dec[cat])
+        seed_xy = np.column_stack(
+            _seed_wcs(frame, parity).world_to_pixel_values(ra, dec)
+        )
+        predicted = seed_xy[:N_BOOTSTRAP_CATALOGUE]
+        for degrees in np.arange(0.0, 360.0, ROTATION_STEP_DEG):
+            votes, dx, dy = _vote(detections, _rotate(predicted, centre, degrees),
+                                  half_px)
+            if votes > best[0]:
+                best = (votes, parity, degrees, np.array([dx, dy]))
+        if best[0] >= max(needed, VOTES_DECISIVE):
+            break
 
-    # astroalign raises a bare MaxIterError naming neither the frame nor the counts.
-    raise RuntimeError(
-        f"could not match {frame.path} against the catalogue "
-        f"({len(x)} detections, {len(ra)} catalogue sources near the field)\n  "
-        + "\n  ".join(failures)
+    votes, parity, degrees, shift = best
+    if votes < needed:
+        raise RuntimeError(
+            f"could not match {frame.path} against the catalogue: the best offset drew "
+            f"{votes:.0f} votes, below the {needed:.0f} needed to stand clear of the "
+            f"background ({len(detections)} core detections, {n_catalogue} of "
+            f"{len(ra)} catalogue sources used). The pointing may be wrong by more "
+            f"than {POINTING_SLACK_ARCMIN:.0f} arcmin, or the catalogue may not cover it."
+        )
+
+    # Orientation is settled; now recover the scale over the full frame, then turn the
+    # whole thing back into matched pairs and let the least-squares fit produce the WCS.
+    # The transform itself is never used, so its conventions never have to be unpicked.
+    seed_xy = np.column_stack(
+        _seed_wcs(frame, parity).world_to_pixel_values(ra, dec)
     )
+    rotated = _rotate(seed_xy, centre, degrees)
+    factor, paired = _best_scale(x, y, rotated, centre, shift, VOTE_BIN_PX / 2.0)
+    placed = (rotated - centre) * factor + centre + shift
+
+    det, cat = _pair_up(x, y, placed[:, 0], placed[:, 1], VOTE_BIN_PX / 2.0)
+    if len(det) < min_match:
+        raise RuntimeError(
+            f"could not match {frame.path} against the catalogue: the winning offset "
+            f"drew {votes:.0f} votes but only {len(det)} sources paired up "
+            f"(scale factor {factor:.4f}, {paired} at best)"
+        )
+    return _fit(x[det], y[det], ra[cat], dec[cat])
 
 
-def solve_local(frame, catalogue, x=None, y=None, force=False, thresh=2.0,
+def solve_local(frame, catalogue, x=None, y=None, force=False, thresh=SOLVE_THRESH,
                 tol_arcsec=3.0, min_match=8, sip_degree=None):
     """Solve and cache a frame's WCS against a local reference catalogue.
 
@@ -423,6 +686,10 @@ def solve_local(frame, catalogue, x=None, y=None, force=False, thresh=2.0,
         does not matter; it is sorted by brightness here.
     x, y : array-like, optional
         Detection pixel coordinates. Extracted from the green plane if not given.
+    thresh : float
+        Detection threshold in background sigma. Note this is *not*
+        ``Project.thresh``, which governs the photometry and is deliberately much
+        lower -- see :func:`detect_for_solve`.
     tol_arcsec : float
         Initial pairing radius, tightened over the fit iterations. The default is
         generous enough to absorb the seed's error.
@@ -437,11 +704,7 @@ def solve_local(frame, catalogue, x=None, y=None, force=False, thresh=2.0,
         return _read_wcs(cache)
 
     if x is None or y is None:
-        from . import photometry
-
-        green = photometry.extract_sources(frame, thresh=thresh).band("G")
-        order = np.argsort(np.asarray(green["flux"]))[::-1]  # brightest first
-        x, y = np.asarray(green["x"])[order], np.asarray(green["y"])[order]
+        x, y = detect_for_solve(frame, thresh=thresh)
     x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
 
     ra, dec, n_all = _field_sources(frame, catalogue)
@@ -450,10 +713,14 @@ def solve_local(frame, catalogue, x=None, y=None, force=False, thresh=2.0,
     wcs = None
     header = _header_wcs(frame)
     if header is not None:
-        wcs = _refine(header, x, y, ra, dec, scale, tol_arcsec, min_match, sip_degree)
+        # Wide enough for the arcmin-scale error a header solution can carry, but not so
+        # wide that a header wrong by degrees could fake a fit.
+        wcs = _refine(header, x, y, ra, dec, scale, tol_arcsec, min_match, sip_degree,
+                      start_arcsec=120.0)
     if wcs is None:
-        approx = _bootstrap(frame, x, y, ra, dec)
-        wcs = _refine(approx, x, y, ra, dec, scale, tol_arcsec, min_match, sip_degree)
+        approx = _bootstrap(frame, x, y, ra, dec, scale, min_match=min_match)
+        wcs = _refine(approx, x, y, ra, dec, scale, tol_arcsec, min_match, sip_degree,
+                      start_arcsec=VOTE_BIN_PX * scale)
     if wcs is None:
         raise RuntimeError(
             f"local solve of {frame.path} did not converge: fewer than {min_match} "
@@ -553,8 +820,9 @@ def solve(frame, solver="astap", api_key=None, force=False, astap_exe=ASTAP_EXE,
     if solver == "astap":
         return solve_astap(frame, force=force, astap_exe=astap_exe)
     if solver == "local":
-        return solve_local(frame, _require_catalogue(catalogue), force=force,
-                           thresh=thresh)
+        # `thresh` is not forwarded: it is the photometry's detection threshold, and the
+        # solver wants a much higher one. See `detect_for_solve`.
+        return solve_local(frame, _require_catalogue(catalogue), force=force)
     if solver == "nova":
         from . import photometry
 

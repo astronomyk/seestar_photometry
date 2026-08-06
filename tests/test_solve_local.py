@@ -10,19 +10,21 @@ Two details make this worth having alongside the real-data tests in
 real Seestar frame is mirrored -- so between them the two modules cover both entries of
 ``astrometry.SEED_PARITY``, and neither can quietly become the only one that works.
 
-The star grid is deliberately jittered here. ``conftest.truth_table`` lays stars on an
-exact 48-pixel lattice, which is close to the worst possible input for triangle matching:
-every asterism has hundreds of congruent twins.
+These frames are also far sparser than anything real: 49 stars against the hundreds or
+thousands a Seestar sub yields. That is deliberate, and it is what keeps the solver's
+thresholds honest -- an absolute vote count tuned on a real frame rejects everything
+here, which is why :func:`astrometry._vote_threshold` is statistical instead.
+
+The star grid is jittered off ``conftest.truth_table``'s exact 48-pixel lattice. A
+perfect lattice is degenerate for any geometric matcher.
 """
 
 import numpy as np
 import pytest
 
-pytest.importorskip("astroalign")
+import conftest
 
-import conftest  # noqa: E402
-
-from seestar_photometry import astrometry, frames  # noqa: E402
+from seestar_photometry import astrometry, frames
 
 
 def jittered_truth(seed=17, jitter=11.0):
@@ -193,6 +195,42 @@ def test_a_frame_with_no_pointing_names_the_alternative(tmp_path, truth, catalog
 
     with pytest.raises(RuntimeError, match="astap"):
         astrometry.solve_local(frame, catalogue)
+
+
+def test_detect_for_solve_returns_positions_brightest_first(tmp_path, truth):
+    """Positions only, and never more than the cap -- see the docstring for why."""
+    frame = make_frame(tmp_path, truth, "detect.fit")
+    x, y = astrometry.detect_for_solve(frame)
+    assert len(x) == len(y) and 0 < len(x) <= astrometry.N_DETECT_MAX
+    assert ((0 <= x) & (x < conftest.NX)).all()
+    assert ((0 <= y) & (y < conftest.NY)).all()
+    # A higher threshold must find no more than a lower one.
+    assert len(astrometry.detect_for_solve(frame, thresh=20.0)) <= len(x)
+
+
+def test_solving_does_not_run_the_photometry(tmp_path, truth, catalogue, monkeypatch):
+    """`extract_sources` costs minutes on a deep wide frame and settles nothing here."""
+    from seestar_photometry import photometry
+
+    def boom(*args, **kwargs):
+        raise AssertionError("solve_local must not call extract_sources")
+
+    monkeypatch.setattr(photometry, "extract_sources", boom)
+    frame = make_frame(tmp_path, truth, "nophot.fit")
+    assert astrometry.solve_local(frame, catalogue).has_celestial
+
+
+def test_the_vote_threshold_scales_with_the_background():
+    """A fixed vote count cannot serve both a sparse synthetic frame and a real one.
+
+    Same peak height, two very different fields: on a small sparse one it is decisive,
+    on a rich one with a wide search it is nothing special.
+    """
+    sparse = astrometry._vote_threshold(50, 50, half_px=1500)
+    rich = astrometry._vote_threshold(250, 500, half_px=3000)
+    assert sparse == astrometry.MIN_VOTES_FLOOR   # background is negligible
+    assert rich > sparse
+    assert astrometry._vote_threshold(250, 500, half_px=300) > rich  # tighter search
 
 
 def test_too_few_sources_does_not_produce_a_wcs(tmp_path, truth, catalogue):

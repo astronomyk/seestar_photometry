@@ -2946,7 +2946,6 @@ dependencies = [
 
 [package.optional-dependencies]
 catalog = [
-    { name = "astroalign" },
     { name = "astropy-healpix" },
     { name = "pyarrow" },
 ]
@@ -2982,7 +2981,6 @@ stack = [
 
 [package.metadata]
 requires-dist = [
-    { name = "astroalign", marker = "extra == 'catalog'", specifier = ">=2.6.2" },
     { name = "astroalign", marker = "extra == 'dev'", specifier = ">=2.6.2" },
     { name = "astroalign", marker = "extra == 'stack'", specifier = ">=2.6.2" },
     { name = "astropy" },
