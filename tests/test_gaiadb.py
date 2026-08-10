@@ -395,3 +395,21 @@ def test_project_catalogue_radius_covers_the_box(tmp_path):
     proj = _project(tmp_path, catalogue_half_deg=1.5)
     # The corner of the box is half_deg * sqrt(2) away; the radius must reach it.
     assert proj.catalogue_radius_deg >= 1.5 * 2 ** 0.5
+
+
+def test_fetch_catalogue_asks_for_the_radius_the_project_needs(tmp_path, monkeypatch):
+    """A frame's worth of sky is not enough, and getting it wrong is silent.
+
+    Measured on the real deployment: a 1.5 degree fetch pulls 11 HEALPix parts and
+    leaves ``catalogue_backend_used()`` answering "tap"; the project needs 14.
+    """
+    seen = {}
+    monkeypatch.setattr(gaiadb, "download",
+                        lambda **kw: seen.update(kw) or tmp_path)
+
+    proj = _project(tmp_path, catalogue_half_deg=1.5)
+    proj.fetch_catalogue(quiet=True)
+    assert seen["radius_deg"] == proj.catalogue_radius_deg
+    assert seen["center"] == proj.target.radec
+    assert len(gaiadb.parts_in_cone(proj.target.radec, proj.catalogue_radius_deg)) > \
+        len(gaiadb.parts_in_cone(proj.target.radec, 1.5))

@@ -216,6 +216,20 @@ class Project:
         return "local" if gaiadb.covers(
             self.target.radec, self.catalogue_radius_deg) else "tap"
 
+    def fetch_catalogue(self, **kwargs):
+        """Download the offline catalogue for this field, if it is not already here.
+
+        The radius that matters is :attr:`catalogue_radius_deg`, not the field of view:
+        the cached catalogue covers a whole night's dithering, and the cone has to reach
+        the corners of that box. Fetching a frame's worth instead leaves
+        :meth:`catalogue_backend_used` answering ``"tap"`` for no obvious reason, which
+        is why this exists rather than leaving callers to work the radius out.
+        """
+        from . import gaiadb
+
+        return gaiadb.download(center=self.target.radec,
+                               radius_deg=self.catalogue_radius_deg, **kwargs)
+
     def catalogue(self, overwrite=False):
         """Load (or build once) the cached reference catalogue for this field.
 

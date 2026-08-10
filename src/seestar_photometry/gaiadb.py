@@ -85,7 +85,7 @@ DATASET = f"gaia-seestar-{DATA_RELEASE}-{DATA_VERSION}"
 #: Where to fetch parts from. Overridden by ``SEESTAR_GAIA_URL``, which is how you point
 #: at a staging host or a ``file://`` copy without editing code. Shares a host with
 #: :data:`astap.BASE_URL`; see ``tools/HOSTING.md``.
-BASE_URL = f"https://crowdsky.univie.ac.at/seestar/{DATASET}"
+BASE_URL = f"https://crowdsky.univie.ac.at/seestar_assets/{DATASET}"
 
 #: HEALPix order of the partitioning. See the module docstring for why 5.
 HPX_LEVEL = 5
@@ -593,9 +593,13 @@ def download(center=None, radius_deg=None, force=False, directory=None, quiet=Fa
     directory = Path(directory) if directory is not None else dataset_dir()
     directory.mkdir(parents=True, exist_ok=True)
 
+    # Always re-fetched, never reused from disk. The manifest is the index of what the
+    # server carries, and that grows: a dataset published for one region and later
+    # extended would otherwise be invisible to anyone who fetched the early manifest,
+    # and they would be told their field is not carried when it now is. A few kB per
+    # call is a cheap price for not having a stale index.
     local = directory / MANIFEST
-    if force or not local.exists():
-        _fetch(f"{_base_url()}/{MANIFEST}", local)
+    _fetch(f"{_base_url()}/{MANIFEST}", local)
     meta = json.loads(local.read_text(encoding="utf-8"))
 
     if center is not None and radius_deg is not None:

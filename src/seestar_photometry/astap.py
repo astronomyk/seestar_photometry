@@ -51,7 +51,7 @@ VERSION = "2026.07.16"
 #: Mirrored rather than fetched from upstream because SourceForge's download URLs are
 #: redirect-heavy and version-stamped, so they rot; MPL-2.0 permits the copy. Shares a
 #: host with :data:`gaiadb.BASE_URL`; see ``tools/HOSTING.md``.
-BASE_URL = "https://crowdsky.univie.ac.at/seestar/astap"
+BASE_URL = "https://crowdsky.univie.ac.at/seestar_assets/astap"
 
 #: Filename of the checksum manifest on the mirror.
 MANIFEST = "MANIFEST.json"
