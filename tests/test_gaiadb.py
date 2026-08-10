@@ -225,11 +225,56 @@ def test_dtypes_and_units_match_the_schema(dataset):
     assert str(got["v_jkc_mag"].unit) == "mag"
 
 
-def test_writing_without_a_required_column_is_an_error(tmp_path, catalogue):
-    incomplete = catalogue.copy()
-    incomplete.remove_column("ruwe")
-    with pytest.raises(ValueError, match="ruwe"):
-        gaiadb.write_dataset(incomplete, tmp_path)
+def test_writing_without_a_position_is_an_error(tmp_path, catalogue):
+    """Positions and identity are the spine; nothing works without them."""
+    for column in ("source_id", "ra", "dec"):
+        incomplete = catalogue.copy()
+        incomplete.remove_column(column)
+        with pytest.raises((ValueError, KeyError), match=column):
+            gaiadb.write_dataset(incomplete, tmp_path)
+
+
+def test_a_column_the_dataset_lacks_comes_back_masked(tmp_path, catalogue):
+    """A dataset may carry only part of the schema, and must say so.
+
+    The columns come from two Gaia tables and the one holding positions is 790 GB in
+    bulk form, so a build assembled from what is actually obtainable is the normal case,
+    not a degenerate one. Callers still see every column -- the absent ones are entirely
+    masked, which is what code testing ``np.ma.getmaskarray`` should conclude.
+    """
+    partial = catalogue.copy()
+    for column in ("ruwe", "teff_gspphot", "phot_variable_flag"):
+        partial.remove_column(column)
+    meta = gaiadb.write_dataset(partial, tmp_path)
+
+    assert "ruwe" not in meta["columns_present"]
+    assert "v_jkc_mag" in meta["columns_present"]
+    assert meta["columns"] == list(gaiadb.COLUMNS)
+
+    got = gaiadb.cone(FIELD, 3.0, directory=tmp_path)
+    assert list(got.colnames) == list(gaiadb.COLUMNS)
+    assert np.ma.getmaskarray(got["ruwe"]).all()
+    assert np.ma.getmaskarray(got["phot_variable_flag"]).all()
+    assert not np.ma.getmaskarray(got["v_jkc_mag"]).all()
+
+
+def test_parts_can_be_written_one_at_a_time_and_indexed_later(tmp_path, catalogue):
+    """An all-sky build is 12288 parts and has to survive being interrupted."""
+    pixels = np.unique(gaiadb.hpx_of(catalogue["source_id"]))
+    for pixel in pixels:
+        rows = catalogue[gaiadb.hpx_of(catalogue["source_id"]) == pixel]
+        gaiadb.write_part(rows, tmp_path)
+    assert gaiadb.manifest(tmp_path) is None, "no manifest until it is finalised"
+
+    meta = gaiadb.finalise_manifest(tmp_path)
+    assert meta["rows"] == len(catalogue)
+    assert set(meta["parts"]) == {str(int(p)) for p in pixels}
+    assert len(gaiadb.cone(FIELD, 3.0, directory=tmp_path)) == len(catalogue)
+
+
+def test_write_part_refuses_mixed_pixels(tmp_path, catalogue):
+    with pytest.raises(ValueError, match="one HEALPix pixel"):
+        gaiadb.write_part(catalogue, tmp_path)
 
 
 # --- filters --------------------------------------------------------------------------------

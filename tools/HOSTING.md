@@ -112,24 +112,53 @@ enough to exercise the offline path end to end on the main science field. Everyw
 designed behaviour and not an error. Replace it with a wider build when there is one; the
 manifest is re-fetched on every call, so clients pick up new regions without being told.
 
-**A full-sky build is a different job and is not automated.** At V < 17.5 the
-synthetic-photometry catalogue is ~195 million rows. Two ways to get there:
+### All sky
 
-- **Tile the sky with TAP cones.** ~525 five-degree cones, merged into one output directory.
-  It works with the tool as written and needs no new code, but it is a long unattended run
-  and Gaia TAP truncates large async results, so expect to re-run failed tiles.
-- **Bulk download and join offline.** The archive publishes `gaia_source` and
-  `synthetic_photometry_gspc` as per-HEALPix files under `cdn.gea.esac.esa.int`. Far faster
-  and far more reliable, but it needs a fetch-and-join step that does not exist yet. Check
-  the current directory layout before scripting it — that CDN is a JavaScript file browser
-  and its paths have moved between releases.
+`tools/build_gaia_allsky.py`. The obvious route does not work, and the reasons are worth
+keeping because both are counter-intuitive.
 
-Either way the writing half is already shared: `gaiadb.write_dataset` takes whatever table it
-is handed, computes the HEALPix partition from `source_id`, and emits the manifest.
+**Bulk-downloading everything is not viable.** The catalogue needs two Gaia tables.
+`synthetic_photometry_gspc` has the synthetic V and the colour and bulk-downloads as 44
+files totalling ~42 GB. `gaia_source` has the positions and proper motions and
+bulk-downloads as 3387 files totalling **~790 GB** -- 152 columns for 1.8 billion rows, to
+keep 6 columns for the 220 million that have synthetic photometry. And neither table alone
+is enough: **GSPC carries no `ra`/`dec`**, only `source_id`.
 
-Expect roughly 10 GB. Measured on a real 4-degree region: 47995 rows in 26 parts at 51.4
-bytes/row, though per-part overhead is inflated at that size and the full build should come
-in lower.
+**Chunking the join over TAP does not work either.** `source_id BETWEEN` has no spatial
+index behind it; the archive answers HTTP 500 after exactly 182 seconds, measured three
+times, on queries as simple as a row count. Cone-tiling works but means ~525 queries.
+
+So the build **joins new photometry onto positions already in hand**. Given per-HEALPix
+tiles carrying `source_id`/`ra`/`dec`/`pmra`/`pmdec` -- `D:	mp\gaia_V
+side32` is such a
+set, 12288 tiles at nside 32, which is exactly `gaiadb`'s partitioning -- only the 42 GB of
+GSPC has to be fetched:
+
+```bash
+uv run python tools/build_gaia_allsky.py     --tiles D:/tmp/gaia_V/nside32 --work D:/tmp/gaia_build --out D:/tmp/gaia_allsky
+```
+
+Two passes, both resumable: a routed GSPC file leaves a marker and pass 2 skips parts
+already written, so it survives being killed or the laptop sleeping. Downloads run four at
+a time because the CDN gives ~2 MB/s on one stream and ~5 MB/s over four; routing stays
+single-threaded, which is why the bucket appends need no locking. Reckon on ~2.5 h of
+download, ~12 min of parsing and well under an hour to join.
+
+**Eleven of the twenty schema columns come out populated**, and they are the ones the
+package reads: `source_id`, `ra`, `dec`, `pmra`, `pmdec`, `phot_g_mean_mag`, `v_jkc_mag`,
+`b_jkc_mag`, `r_jkc_mag`, `v_jkc_flag`, `c_star`. Absent, because they live only in
+`gaia_source`: `bp_rp`, `phot_variable_flag`, `ruwe`, `teff_gspphot`,
+`ipd_frac_multi_peak`, `non_single_star`, `duplicated_source`, `in_galaxy_candidates`,
+`has_epoch_photometry`. They are written as entirely-null columns, so they read back masked
+and the schema is the same either way; `columns_present` in the manifest says which are
+real.
+
+The one that costs something is `phot_variable_flag`: `fit_zeropoint` and
+`select_comparisons` both use it to drop known variables, and without it they drop none.
+Both guard on the column being present, so nothing breaks. It could be recovered
+cheaply -- DR3 has ~10.5M variable sources and only their `source_id` is needed -- which is
+the obvious next improvement. `bp_rp` is not a loss: the comparison colour cut falls back
+to B-R, which this build does have.
 
 Bump `gaiadb.DATA_VERSION` when the schema or the row selection changes; bump
 `DATA_RELEASE` for a new Gaia release. The directory name carries both, so two versions can

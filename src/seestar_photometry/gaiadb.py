@@ -183,6 +183,10 @@ _ALWAYS_PRESENT = ("source_id", "ra", "dec")
 #: exists to prevent.
 _FILL = {"str": "", "bool": False}
 
+#: numpy dtype to build an all-missing column with, where the schema's own is awkward
+#: to allocate empty. Only used for columns a dataset does not carry.
+_EMPTY_DTYPE = {"str": "U16"}
+
 
 def hpx_of(source_id):
     """Level-:data:`HPX_LEVEL` HEALPix pixel of one or many Gaia ``source_id``.
@@ -439,10 +443,20 @@ def _to_arrow(catalogue):
     import pyarrow as pa
 
     fields, arrays = [], []
+    n_rows = len(catalogue)
     for name in COLUMNS:
         if name not in catalogue.colnames:
-            raise ValueError(f"catalogue is missing the {name!r} column")
-        column = catalogue[name]
+            if name in _ALWAYS_PRESENT:
+                raise ValueError(f"catalogue is missing the {name!r} column")
+            # A dataset may legitimately carry only some of the schema -- the columns
+            # come from two Gaia tables and the expensive one is 790 GB in bulk form.
+            # An absent column is written as entirely null, so it reads back masked,
+            # which is exactly what "we do not have this" should look like to code that
+            # tests the mask. The manifest records which are real.
+            column = np.ma.masked_all(n_rows, dtype=_EMPTY_DTYPE.get(DTYPES[name],
+                                                                     DTYPES[name]))
+        else:
+            column = catalogue[name]
         dtype = DTYPES[name]
         mask = np.ma.getmaskarray(column)
         values = np.ma.getdata(column)
@@ -509,24 +523,74 @@ def write_dataset(catalogue, directory, compression="zstd"):
     order = np.argsort(np.asarray(catalogue["source_id"], dtype=np.int64), kind="stable")
     catalogue = catalogue[order]
     pixels = hpx_of(catalogue["source_id"])
-    floats = [n for n in COLUMNS if DTYPES[n].startswith("float")]
-
-    parts = {}
     for pixel in np.unique(pixels):
-        arrow = _to_arrow(catalogue[pixels == pixel])
-        path = part_path(pixel, directory)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            arrow, path, compression=compression,
-            use_byte_stream_split=floats, use_dictionary=["phot_variable_flag"],
-        )
-        parts[str(int(pixel))] = {
+        write_part(catalogue[pixels == pixel], directory, compression=compression)
+    return finalise_manifest(directory)
+
+
+def write_part(catalogue, directory, pixel=None, compression="zstd"):
+    """Write the rows of one HEALPix part, and return its path.
+
+    Split out from :func:`write_dataset` so an all-sky build can go part by part and be
+    killed and resumed: 12288 parts is many hours of work, and redoing it because a
+    laptop slept is not acceptable.
+    """
+    import pyarrow.parquet as pq
+
+    pixels = np.unique(hpx_of(catalogue["source_id"]))
+    if pixel is None:
+        if len(pixels) != 1:
+            raise ValueError(
+                f"write_part takes rows from one HEALPix pixel, got {len(pixels)}"
+            )
+        pixel = int(pixels[0])
+    elif len(pixels) and pixels[0] != pixel:
+        raise ValueError(f"rows belong to pixel {pixels[0]}, not {pixel}")
+
+    arrow = _to_arrow(catalogue)
+    path = part_path(pixel, directory)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".part")
+    pq.write_table(
+        arrow, tmp, compression=compression,
+        use_byte_stream_split=[n for n in COLUMNS if DTYPES[n].startswith("float")],
+        use_dictionary=["phot_variable_flag"],
+    )
+    # Renamed into place only once complete, so an interrupted build leaves no
+    # half-written part that a resumed run would skip as already done.
+    tmp.replace(path)
+    return path
+
+
+def finalise_manifest(directory):
+    """Index whatever parts are on disk, and write the manifest.
+
+    Separate from writing so a build can be resumed and then indexed once at the end.
+    Which columns actually hold values is read from each part's Parquet null counts
+    rather than tracked by the caller -- the statistics are in the footer, so it costs
+    metadata reads rather than a pass over the data.
+    """
+    import pyarrow.parquet as pq
+
+    directory = Path(directory)
+    parts, rows, populated = {}, 0, set()
+    for path in sorted(directory.glob(f"hpx{HPX_LEVEL}=*/part.parquet")):
+        pixel = int(path.parent.name.split("=", 1)[1])
+        meta = pq.ParquetFile(path).metadata
+        parts[str(pixel)] = {
             "sha256": sha256_of(path),
             "bytes": path.stat().st_size,
-            "rows": int(arrow.num_rows),
+            "rows": int(meta.num_rows),
         }
+        rows += int(meta.num_rows)
+        schema = meta.schema.to_arrow_schema()
+        for group in range(meta.num_row_groups):
+            for i, name in enumerate(schema.names):
+                stats = meta.row_group(group).column(i).statistics
+                if stats is not None and stats.null_count < meta.row_group(group).num_rows:
+                    populated.add(name)
 
-    meta = {
+    result = {
         "dataset": DATASET,
         "release": DATA_RELEASE,
         "version": DATA_VERSION,
@@ -534,11 +598,14 @@ def write_dataset(catalogue, directory, compression="zstd"):
         "ref_epoch": REF_EPOCH,
         "v_limit": V_LIMIT,
         "columns": list(COLUMNS),
-        "rows": int(len(catalogue)),
+        # Which of them hold real values. The rest are present in the schema and
+        # entirely masked, so callers see a stable set of columns either way.
+        "columns_present": [c for c in COLUMNS if c in populated],
+        "rows": rows,
         "parts": parts,
     }
-    (directory / MANIFEST).write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    return meta
+    (directory / MANIFEST).write_text(json.dumps(result, indent=1), encoding="utf-8")
+    return result
 
 
 # --- fetching -----------------------------------------------------------------------------
