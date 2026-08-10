@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seestar-photometry"
-version = "0.2.0"
+version = "0.3.0"
 description = "Time-domain photometry from ZWO Seestar smart-telescope frames, calibrated to Gaia synthetic V"
 readme = "README.md"
 requires-python = ">=3.11"

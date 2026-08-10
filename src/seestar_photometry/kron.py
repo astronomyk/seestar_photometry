@@ -53,18 +53,21 @@ def _kron_flux(data, objs, err, k=2.5, r_min=1.75, bkgann=None):
     return flux, fluxerr, flag, use_circle
 
 
-def extract_kron(frame, thresh=2.0, bkgann=None):
+def extract_kron(frame, thresh=2.0, bkgann=None, mask=None):
     """Kron/AUTO photometry across the R, G, B planes (cross-check only).
 
     Mirrors :func:`photometry.extract_sources` but with adaptive elliptical
     apertures. The ``sources`` table gains a ``kron_fallback`` boolean column. Only
     sources with SNR > 5 are kept.
+
+    ``mask`` (``True`` = ignore) is passed through to detection, as in
+    :func:`photometry.extract_sources`.
     """
     background = np.empty_like(frame.data)
     rms = np.empty(3, dtype=np.float32)
     tables = []
     for i, band in enumerate(BANDS):
-        bkg, data_sub, objs = _detect(frame.data[i], thresh)
+        bkg, data_sub, objs = _detect(frame.data[i], thresh, mask=mask)
         background[i] = bkg.back()
         rms[i] = bkg.globalrms
         flux, fluxerr, flag, fallback = _kron_flux(

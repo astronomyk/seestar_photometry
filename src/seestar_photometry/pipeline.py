@@ -225,6 +225,19 @@ def solve_all(project, workers=None, force=False, limit=None):
 
 # --- stage 2: per-frame characterisation ----------------------------------------------
 
+def _frame_mask(project, frame, wcs):
+    """The project's per-frame exclusion mask, or ``None``.
+
+    ``Project.mask`` is a callable so the region can be specified on the sky once and
+    resolved to pixels per frame -- dithering and Alt-Az rotation move it. A mask that
+    raises is treated as fatal rather than skipped: quietly measuring an unmasked frame
+    alongside masked ones would mix two aperture-sizing regimes in one table.
+    """
+    if getattr(project, "mask", None) is None:
+        return None
+    return project.mask(frame, wcs)
+
+
 def _frame_row(key, project):
     """Characterise one frame into a quality row. Returns ``(key, status, row)``."""
     from . import astrometry, calibration, frames, photometry, quality
@@ -239,7 +252,8 @@ def _frame_row(key, project):
         return key, "no_wcs", None
     try:
         ext = photometry.extract_sources(
-            frame, thresh=project.thresh, enclosed=project.enclosed_characterise
+            frame, thresh=project.thresh, enclosed=project.enclosed_characterise,
+            mask=_frame_mask(project, frame, wcs), isolation=project.isolation,
         )
         ext.match_gaia(_CATALOGUE, wcs=wcs, tol_arcsec=project.match_tol_arcsec)
         cal = calibration.fit_zeropoint(
@@ -353,6 +367,7 @@ def _measure_sources(key, project):
             frame, in_frame["ra"], in_frame["dec"], wcs,
             source_id=in_frame["source_id"], thresh=project.thresh,
             enclosed=project.enclosed_lightcurve,
+            mask=_frame_mask(project, frame, wcs), isolation=project.isolation,
         )
         # The forced positions *are* catalogue sources, so their catalogue photometry
         # is carried straight through rather than re-matched. `forced` is three

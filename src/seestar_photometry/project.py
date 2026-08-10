@@ -111,6 +111,26 @@ class Project:
         ``provenance(frame) -> dict`` of extra frame-table columns (dataset name,
         stacking manifest fields, ...). Keeps project bookkeeping out of the core
         schema.
+    mask : callable, optional
+        ``mask(frame, wcs) -> bool array`` (or ``None``), giving the pixels to ignore
+        (``True`` = ignore) for background estimation, detection and aperture sizing.
+
+        A callable rather than an array, because the region is fixed on the *sky* while
+        its pixels move frame to frame under dithering and Alt-Az field rotation.
+        :func:`photometry.sky_mask` turns sky circles into the per-frame array::
+
+            mask=lambda frame, wcs: photometry.sky_mask(
+                frame.shape, wcs, ra=299.9016, dec=22.7210, radius_arcsec=360)
+
+        Needed for a field containing a nebula or galaxy: extended emission is bright,
+        round, and -- being large -- isolated, so it passes every curve-of-growth cut and
+        can end up sizing the aperture for the whole frame. See
+        :data:`photometry.COG_MAX_SIZE_RATIO`.
+    isolation : float, optional
+        Nearest-neighbour distance (px) a curve-of-growth star must clear. ``None`` keeps
+        the :mod:`photometry` default of ``2 * COG_RADII.max()`` (40 px); lower it in a
+        crowded field, where that default can starve the sample and silently force the
+        ``1.2 * FWHM`` fallback.
     """
 
     target: Target
@@ -129,6 +149,8 @@ class Project:
     catalogue_backend: str = "auto"
     epoch: float = None
     provenance: object = field(default=None, repr=False)
+    mask: object = field(default=None, repr=False)
+    isolation: float = None
 
     def __post_init__(self):
         self.work_dir = Path(self.work_dir)

@@ -77,6 +77,51 @@ loss caused by Alt-Az field rotation, at negligible sky-noise cost for photon-do
 targets. Do not "unify" these — they optimise different quantities, and
 `tests/test_pipeline.py` asserts they stay distinct.
 
+### A nebula will size your aperture if you let it
+
+The COG sample is "bright, round, isolated". On a field containing extended emission those
+three cuts do not select stars — they select *the nebula*. Measured on a real M27 frame
+(600 s stack, 5469 green detections):
+
+| | |
+|---|---|
+| bright + round (SNR > 50, b/a > 0.7) | 578 sources |
+| median nearest-neighbour distance | **10.6 px**, against a 40 px isolation cut |
+| sources clearing isolation | **1** — M27 itself, `a = 42 px`, `b/a = 0.82` |
+| aperture from that one-object COG | **19.0 px** |
+| aperture the stars actually wanted | **5.3 px** |
+
+Two failure modes compound:
+
+- **Isolation selects for extended objects.** In a rich field nothing *stellar* has 40 px of
+  clear space, but a nebula does, precisely because it is large enough to have swallowed or
+  outgrown its neighbours. Roundness does not save you: a planetary nebula is round.
+- **A one-star COG returns a finite radius.** The documented "falls back to 1.2 × FWHM"
+  only triggers on a *non-finite* result, so a garbage aperture measured from a single
+  extended object was used silently, with `n_stars = 1` the only clue.
+
+Both are now closed. `COG_MAX_SIZE_RATIO` (3.0) rejects candidates whose semi-major axis
+exceeds 3× the median of the frame's bright round sources — a star sits at 1, M27 at 21 —
+and `MIN_COG_STARS` (5) forces the FWHM fallback rather than trusting a COG built on
+almost nothing. On top of that every entry point takes `mask=` (`True` = ignore, SEP's
+convention) for emission you know about in advance; `photometry.sky_mask` builds one from
+sky circles, and `Project.mask` is the per-frame callable hook the pipeline uses.
+
+**The FWHM is not affected — only the aperture.** Masking M27 moved the measured green FWHM
+by 0.01 px (4.41 → 4.40) while moving the 90% aperture from 19.03 px to 5.29 px. `measure_fwhm`
+takes a median of per-source half-light radii, and a median of scalars shrugs off a minority
+that a median of whole growth *curves* does not: one non-convergent curve depresses the
+median curve at every radius, so the radius where it first reaches 0.90 slides outward.
+
+Note what `mask=` deliberately does **not** do. It is not passed to `sep.extract`, because
+that does not remove a bright extended source — SEP drops the masked pixels from the
+footprint but the surrounding flux still clears the threshold, so one nebula fragments into
+a ring of detections around the mask boundary, whose centroids all sit *outside* the mask.
+Rejecting on the centroid of the un-masked segmentation removes the object in one piece.
+And it never changes a reported flux: a star whose aperture overlaps the mask is still
+summed over all its pixels, because silently altering a flux is worse than reporting a
+contaminated one.
+
 ## 3. The aperture is sized per *band*, not pinned to green
 
 Each of R, G, B is sized to **its own** enclosure radius. They are *not* all pinned to the
@@ -122,6 +167,14 @@ out exactly `2.5·log₁₀(enclosed)` below the true total-flux zero point.
 - **Intra-frame spatial PSF variation** is not addressed by aperture choice at all. That is
   the star-flat / ubercal problem. The `*_residual_map` diagnostic panel is what reveals
   it, and a proximity cut on the comparison ensemble is the current mitigation.
-- The aperture is sized from **bright, round, isolated** stars. In sparse or badly focused
-  frames the COG star count drops (often ~15–20) — still enough for a median, but worth
-  watching via `cog.meta["n_stars"]`. Below that the code falls back to `1.2 × FWHM`.
+- The aperture is sized from **bright, round, isolated, point-like** stars. In sparse or
+  badly focused frames the COG star count drops (often ~15–20) — still enough for a median,
+  but worth watching via `cog.meta["n_stars"]`. Below `MIN_COG_STARS` (5) the code falls
+  back to `1.2 × FWHM`.
+- **In a crowded field the COG path may never engage at all.** The isolation requirement is
+  `2 × COG_RADII.max()` = 40 px; on the M27 fields the median nearest-neighbour distance is
+  ~10 px, so after the size cut correctly removes the nebula the sample can be empty and
+  every band silently takes the `1.2 × FWHM` fallback — meaning `enclosed_lightcurve = 0.95`
+  has no effect there. `curve_of_growth(..., isolation=)` and `Project.isolation` let you
+  lower it; check `n_stars` to see whether you are getting a measured aperture or the
+  fallback. Lower it knowingly: the outer radii are what normalise the curve.

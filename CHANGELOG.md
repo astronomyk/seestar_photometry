@@ -2,7 +2,53 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-08-10
+
+Aperture sizing is no longer fooled by extended emission, and every photometry entry point
+takes a `mask=`. Found while reducing a transit of HD 189733 b, whose field contains M27.
+
+### Fixed
+
+- **Extended emission no longer sizes the aperture.** On a field containing a nebula the
+  curve-of-growth cuts — bright, round, isolated — selected the *nebula* rather than stars,
+  and the aperture for the whole frame was measured from its growth curve. On a real M27
+  600 s stack, of 5469 green detections and 578 bright round sources exactly **one** cleared
+  the 40 px isolation cut: M27 itself (`a = 42 px`, `b/a = 0.82`). The resulting green
+  aperture was **19.0 px** where the stars wanted 5.3 px, and nothing reported a problem.
+  Two compounding causes, both closed:
+  - isolation selects *for* extended objects in a crowded field, because only something
+    large has no close neighbour, and roundness does not exclude a planetary nebula. New
+    `photometry.COG_MAX_SIZE_RATIO` (3.0) rejects candidates whose semi-major axis exceeds
+    3× the median of the frame's bright round sources — a star sits at 1, M27 at 21;
+  - a COG built from one object returns a *finite* radius, so the documented "falls back to
+    `1.2 × FWHM`" never triggered. New `photometry.MIN_COG_STARS` (5) is an explicit floor.
+
+  Only the aperture was affected: masking M27 moved the measured green FWHM by 0.01 px
+  (4.41 → 4.40) while moving the 90% aperture from 19.03 to 5.29 px, because `measure_fwhm`
+  medians per-source scalars while the COG medians whole curves.
+- An empty curve-of-growth sample now returns an explicit all-nan table with
+  `meta["n_stars"] = 0` instead of producing the same nans via a numpy "mean of empty slice"
+  RuntimeWarning.
+
 ### Added
+
+- **`mask=` on the photometry entry points** — `extract_sources`, `forced_photometry`,
+  `curve_of_growth`, `measure_fwhm`, `aperture_correction` and `kron.extract_kron` — a
+  boolean array, `True` where pixels should be ignored, following SEP's convention. Excludes
+  a region from the background estimate, from detection, and from the aperture-sizing
+  sample. Two deliberate limits: it is *not* passed to `sep.extract`, because that fragments
+  a bright extended source into a ring of detections around the mask boundary whose
+  centroids sit outside it (rejecting on the centroid of the un-masked segmentation removes
+  the object in one piece); and it never alters a reported flux, so a star whose aperture
+  overlaps the mask is still summed over all its pixels.
+- **`photometry.sky_mask(shape, wcs, ra, dec, radius_arcsec)`** builds that array from
+  circles specified on the sky, which is where the knowledge lives — the pixels move frame
+  to frame under dithering and Alt-Az rotation.
+- **`Project.mask`** — a `mask(frame, wcs) -> bool array` callable, mirroring the existing
+  `provenance` hook, so the batch path can mask per frame; and **`Project.isolation`** to
+  relax the curve-of-growth nearest-neighbour requirement. The 40 px default is unreachable
+  in a rich field (median nearest-neighbour ~10 px on the M27 fields), which silently forces
+  the FWHM fallback and makes `enclosed_lightcurve` inert — check `cog.meta["n_stars"]`.
 
 - **A catalogue-anchored plate solver** (`solver="local"`). No external binary, no network
   and no index files: it pairs SEP detections against the reference catalogue the pipeline
