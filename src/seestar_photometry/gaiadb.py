@@ -547,6 +547,18 @@ def write_part(catalogue, directory, pixel=None, compression="zstd"):
     elif len(pixels) and pixels[0] != pixel:
         raise ValueError(f"rows belong to pixel {pixels[0]}, not {pixel}")
 
+    # A source_id occurs once in Gaia, and the partition is derived from it, so a repeat
+    # within a part is the only way one can exist -- which makes this a complete check,
+    # not a sample. It is here because a build tool once laundered identifiers through
+    # float64, silently rounding them together and merging distinct stars into one row's
+    # identity. Nothing downstream would have noticed: the photometry stayed plausible.
+    ids = np.asarray(catalogue["source_id"], dtype=np.int64)
+    if len(np.unique(ids)) != len(ids):
+        raise ValueError(
+            f"part {pixel} has {len(ids) - len(np.unique(ids))} duplicate source_id "
+            "values; the identifiers have been corrupted upstream"
+        )
+
     arrow = _to_arrow(catalogue)
     path = part_path(pixel, directory)
     path.parent.mkdir(parents=True, exist_ok=True)

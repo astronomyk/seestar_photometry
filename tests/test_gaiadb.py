@@ -277,6 +277,34 @@ def test_write_part_refuses_mixed_pixels(tmp_path, catalogue):
         gaiadb.write_part(catalogue, tmp_path)
 
 
+def test_duplicate_source_ids_are_refused(tmp_path, catalogue):
+    """The check that would have caught a real corruption, so it is not sampled.
+
+    A build tool laundered identifiers through float64. A Gaia ``source_id`` needs 61
+    bits and float64 keeps 53, so identifiers rounded together -- 24 of 53 in one
+    measured query -- and two physically distinct stars 40 arcsec apart ended up sharing
+    a row's identity. Everything downstream still looked plausible, which is exactly why
+    this has to fail at write time.
+    """
+    pixel = int(gaiadb.hpx_of(catalogue["source_id"])[0])
+    rows = catalogue[gaiadb.hpx_of(catalogue["source_id"]) == pixel]
+    assert len(rows) > 2
+    collided = rows.copy()
+    collided["source_id"][1] = collided["source_id"][0]
+
+    with pytest.raises(ValueError, match="duplicate source_id"):
+        gaiadb.write_part(collided, tmp_path)
+    gaiadb.write_part(rows, tmp_path)      # the clean rows still write
+
+
+def test_source_ids_survive_the_write_exactly(tmp_path, catalogue):
+    """No rounding anywhere between the input table and the part on disk."""
+    gaiadb.write_dataset(catalogue, tmp_path)
+    got = gaiadb.cone(FIELD, 3.0, directory=tmp_path)
+    assert set(np.asarray(got["source_id"]).tolist()) == \
+        set(np.asarray(catalogue["source_id"]).tolist())
+
+
 # --- filters --------------------------------------------------------------------------------
 
 def test_magnitude_limits_cut_on_the_right_column(dataset):

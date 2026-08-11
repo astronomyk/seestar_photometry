@@ -97,7 +97,13 @@ def conform(table):
         elif dtype == "str":
             values = np.asarray(values).astype(str)
         elif np.issubdtype(np.dtype(dtype), np.integer):
-            values = np.nan_to_num(np.asarray(values, dtype="float64"), nan=0.0)
+            values = np.asarray(values)
+            if np.issubdtype(values.dtype, np.floating):
+                # Only when the input really is floating point. Laundering an integer
+                # column through float64 loses every bit below 2**53, and a Gaia
+                # source_id needs 61 -- measured, this rounded 24 of 53 identifiers by
+                # 128 and collapsed two distinct stars onto one id.
+                values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
             values = values.astype(dtype)
         else:
             values = np.asarray(values, dtype=dtype)
