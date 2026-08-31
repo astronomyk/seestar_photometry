@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Added
+
+- **Synthetic Seestar-system magnitudes in the offline Gaia catalogue.** Six new
+  `gaiadb.COLUMNS` — `r_s50_mag`, `g_s50_mag`, `b_s50_mag` and their `_err` — carrying AB
+  magnitudes in the S50's *own* R/G/B bands, integrated from Gaia DR3 XP spectra through
+  the unit's fitted passbands. Calibrating a Bayer plane against its own band removes the
+  zero point's colour term instead of fitting it: measured on 57 fifteen-minute 20 Cep
+  stacks, G +0.054 → −0.002, R −0.132 → −0.002 and B +0.548 → ≈0 mag/mag, with the B-plane
+  calibrator rms falling from 347 to 104 mmag. Named per unit model — the S30, S30 Pro and
+  S50 Pro use different sensors and will need their own curves.
+
+  **Populated only below G = 15.0** — 34,238,688 of the catalogue's 148,667,792 rows, 23.0%:
+  ESA publishes *sampled* XP spectra for the bright subset of the XP population and no
+  further. Elsewhere the columns are masked and `v_jkc_mag` remains the reference, which is
+  what every consumer still reads today.
+- `gaiadb.read_part` — one part file as a Table, tolerating a part written before a column
+  existed. What lets a build tool add columns to a dataset a part at a time.
+- `tools/build_gaia_s50.py`, which does that from ESA's bulk XP CDN, plus the passband
+  curves it integrates through (`tools/bayer_passbands.ecsv`). See `tools/HOSTING.md`.
+- **`docs/background-info/s50-photometric-system.md`** — where the S50's bands sit against
+  Johnson-Kron-Cousins and SDSS, the conversions between them (also as
+  `s50-transformations.ecsv`), whether those conversions need a term beyond a linear
+  colour term, and what the S50 references do to a real stack's zero point. Built by
+  `tools/build_s50_system_figures.py` from 235,740 stars, every magnitude synthesised from
+  the same XP spectra so no cross-system zero point enters the comparison. Two results
+  worth knowing before using the bands: **R_S50 is Sloan r**, not Cousins R, to 4 nm of
+  effective wavelength and 4 mmag of scatter; and nothing in the S50 reaches I or i, which
+  sit entirely beyond its 693 nm IR cut. The page also records a trap for anyone measuring
+  a *stack*: saturation clipped in the individual subs survives averaging as a real flux
+  deficit while the stacked peak stays well under the clip level, so no pixel-value test
+  detects it and it has to be excluded by magnitude.
+
+### Changed
+
+- `gaiadb.DATA_VERSION` is `v2`, for the schema change above. `v1` has to stay on the
+  server until a `v2` dataset is uploaded there: the version is in the URL.
+
 ## 0.3.0 — 2026-08-10
 
 Aperture sizing is no longer fooled by extended emission, and every photometry entry point

@@ -74,6 +74,13 @@ example-data
 
 ```{toctree}
 :maxdepth: 1
+:caption: Background
+
+background-info/s50-photometric-system
+```
+
+```{toctree}
+:maxdepth: 1
 :caption: Why it works this way
 
 photometry-design

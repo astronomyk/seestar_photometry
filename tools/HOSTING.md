@@ -6,12 +6,20 @@ the CrowdSky webspace; the third is a GitHub release asset.
 | What | Size | Where | Built by |
 |---|---|---|---|
 | Example data | 18 MB | GitHub release `example-data-v1` | `tools/build_example_data.py` |
-| Gaia catalogue | ~10 GB full sky | `crowdsky.univie.ac.at/seestar_assets/gaia-seestar-dr3-v1/` | `tools/build_gaia_catalogue.py` |
+| Gaia catalogue | ~10 GB full sky | `crowdsky.univie.ac.at/seestar_assets/gaia-seestar-dr3-v2/` | `tools/build_gaia_catalogue.py` |
 | ASTAP mirror | 106 MB | `crowdsky.univie.ac.at/seestar_assets/astap/` | `tools/build_astap_mirror.py` |
 
 The CrowdSky webspace is mounted over the VPN at `Z:\crowdskyo92\html\seestar_assets`,
 which maps to `https://crowdsky.univie.ac.at/seestar_assets/`. Deploying is a file copy;
-there is no rsync-over-ssh step.
+there is no rsync-over-ssh step. **50 GB total**, so the 6.35 GB catalogue is the one asset
+whose size is worth thinking about before adding another.
+
+> **The share refuses attribute and timestamp writes.** A plain `robocopy` fails on every
+> directory with `ERROR 50 ... request not supported`, having copied nothing. Copy the data
+> and nothing else -- `/COPY:D /DCOPY:D` -- and it works. The same goes for anything else
+> that tries to preserve metadata; `cp -p` and `rsync -a` will fail the same way.
+> Note also that robocopy exit codes **below 8 are success** (1 means "files were copied"),
+> so a wrapper that tests for zero will report a good copy as a failure.
 
 The URLs are `gaiadb.BASE_URL` and `astap.BASE_URL`. Both honour an environment override
 (`SEESTAR_GAIA_URL`, `SEESTAR_ASTAP_URL`), which is how to test against a staging copy — or
@@ -32,7 +40,7 @@ Z:\crowdskyo92\html\seestar_assets\        ->  https://crowdsky.univie.ac.at/see
     astap_cli_macos_x86_64.zip
     astap_cli_macos_arm64.zip
     d05.zip                        100 MB
-  gaia-seestar-dr3-v1/
+  gaia-seestar-dr3-v2/
     MANIFEST.json
     hpx5=00000/part.parquet
     ...                            12288 of these
@@ -106,11 +114,13 @@ right, so prefer it:
 proj.fetch_catalogue()          # not gaiadb.download(radius_deg=<fov>)
 ```
 
-**Currently deployed: MW Cam only.** A 4-degree region, 47995 rows in 26 parts, 2.5 MB --
-enough to exercise the offline path end to end on the main science field. Everywhere else
-`covers()` returns False and `catalogue_backend="auto"` falls back to TAP, which is the
-designed behaviour and not an error. Replace it with a wider build when there is one; the
-manifest is re-fetched on every call, so clients pick up new regions without being told.
+**Currently deployed: the full sky, as `v2`.** 12288 parts, 148,667,792 rows, 6.35 GB. It
+replaces nothing -- until August 2026 the server carried no Gaia catalogue at all, only the
+ASTAP mirror, so every client was silently falling back to TAP. A region-only build (MW Cam,
+26 parts, 2.5 MB) existed locally and was never uploaded.
+
+The manifest is re-fetched on every call, so clients pick up a wider or corrected dataset
+without being told anything.
 
 ### All sky
 
@@ -144,14 +154,14 @@ a time because the CDN gives ~2 MB/s on one stream and ~5 MB/s over four; routin
 single-threaded, which is why the bucket appends need no locking. Reckon on ~2.5 h of
 download, ~12 min of parsing and well under an hour to join.
 
-**Eleven of the twenty schema columns come out populated**, and they are the ones the
+**Eleven of the schema's columns come out populated**, and they are the ones the
 package reads: `source_id`, `ra`, `dec`, `pmra`, `pmdec`, `phot_g_mean_mag`, `v_jkc_mag`,
 `b_jkc_mag`, `r_jkc_mag`, `v_jkc_flag`, `c_star`. Absent, because they live only in
 `gaia_source`: `bp_rp`, `phot_variable_flag`, `ruwe`, `teff_gspphot`,
 `ipd_frac_multi_peak`, `non_single_star`, `duplicated_source`, `in_galaxy_candidates`,
-`has_epoch_photometry`. They are written as entirely-null columns, so they read back masked
-and the schema is the same either way; `columns_present` in the manifest says which are
-real.
+`has_epoch_photometry`. The six `*_s50_mag` columns come from the separate pass below.
+Everything unfilled is written as an entirely-null column, so it reads back masked and the
+schema is the same either way; `columns_present` in the manifest says which are real.
 
 The one that costs something is `phot_variable_flag`: `fit_zeropoint` and
 `select_comparisons` both use it to drop known variables, and without it they drop none.
@@ -163,6 +173,73 @@ to B-R, which this build does have.
 Bump `gaiadb.DATA_VERSION` when the schema or the row selection changes; bump
 `DATA_RELEASE` for a new Gaia release. The directory name carries both, so two versions can
 sit side by side on the server during a migration.
+
+### Synthetic S50 magnitudes (`v2`)
+
+`tools/build_gaia_s50.py` adds `r_s50_mag` / `g_s50_mag` / `b_s50_mag` and their errors by
+integrating Gaia DR3 XP spectra through the Seestar's fitted passbands
+(`tools/bayer_passbands.ecsv`, copied from `photometry-adventures-2`, B red tail ×1.15).
+Calibrating a Bayer plane against its own band removes the zero point's colour term instead
+of fitting it — measured on 57 fifteen-minute 20 Cep stacks, G +0.054 → −0.002, R −0.132 →
+−0.002, B +0.548 → ≈0 mag/mag, and the B-plane calibrator rms fell from 347 to 104 mmag.
+This is the `v1` → `v2` schema change, so **`v1` must stay on the server until `v2` is
+uploaded**: `DATA_VERSION` is in the URL and clients follow it.
+
+It adds columns to an existing dataset rather than rebuilding one, so `--src` is the `v1`
+tree and `--out` the `v2` tree:
+
+```bash
+uv run python tools/build_gaia_s50.py --stage list --work D:/tmp/xp
+uv run python tools/build_gaia_s50.py --validate --work D:/tmp/xp
+uv run python tools/build_gaia_s50.py --stage all --work D:/tmp/xp \
+    --src D:/tmp/gaia_allsky --out D:/tmp/gaia_s50 --workers 8
+```
+
+**The spectra stop at G = 15.0.** ESA's bulk `xp_sampled_mean_spectrum` product is the
+bright subset of the XP population, not all of it. Measured over eleven fully covered
+HEALPix parts: coverage of the V < 17.5 catalogue is **100% below G = 15.0 and exactly 0%
+above it**, which is 23.03% of all rows — 37% in a high-latitude part, 17% in the Galactic
+plane, where the same G cut takes a smaller share. The other three quarters get masked
+columns and keep calibrating against `v_jkc_mag`. Full depth would mean
+`xp_continuous_mean_spectrum` instead: **3.6 TB** against 114 GB, plus a GaiaXPy sampling
+pass per source rather than a dot product. Worth revisiting only if the faint end turns out
+to matter.
+
+**The download is the entire job, and it needs concurrency to go anywhere.** ESA throttles
+a *connection* to ~4 MB/s, not a client, so one stream fetches 114.4 GB in eight hours and
+sixteen fetch it in forty minutes. Measured over a wired link from Vienna: 4.4 MB/s on one
+stream, 50 on 16, then flat — 46 at 24, 50 at 32, 44 at 64. Sixteen is the default because
+that is where it plateaus.
+
+Check the link before blaming the CDN. The same probe over WiFi gave 3.3 MB/s on one stream
+and 5.1 on 48, which reads exactly like a server-side per-client cap and is not one — it was
+the local link saturating at ~40 Mbit/s. `--download-workers 1` against `--download-workers
+16` tells the two apart in a minute.
+
+The synthesis stage does not care where it runs: **71 minutes for all 12288 parts on eight
+workers**, at ~1.2 GB resident each. So the whole job is about two hours on any machine with
+a real uplink, and moving it to a bigger host buys nothing.
+
+Measured on the full build: 148,667,792 rows — the same count as `v1`, since the stage adds
+columns and never filters — 34,238,688 of them with S50 magnitudes, in 12288 parts totalling
+**6.35 GB** against `v1`'s 5.65 GB. 43.7 bytes a row. Six float32 columns that are three
+quarters null cost 0.70 GB, which is what byte-stream-split plus zstd does with them.
+
+Both stages are resumable. `fetch` skips any file already on disk at the size the listing
+gives; `synth` skips any part already written, so a re-run after a kill costs seconds.
+Keep the 114 GB afterwards if there is room — it is reusable for any re-synthesis, and
+re-fetching it is another day.
+
+Validation before adopting a build:
+
+```bash
+uv run python tools/build_gaia_s50.py --validate --work D:/tmp/xp
+```
+
+recomputes the 20 Cep field and compares against
+`photometry-adventures-2/paper/data/gaia_20Cep_bayer.ecsv`. Identical inputs and formula,
+so it should agree exactly; it reports the worst disagreement and exits non-zero above
+0.0001 mag. Pass a path to `--validate` to check against a different reference table.
 
 ## Verifying a deployment
 

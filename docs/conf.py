@@ -31,7 +31,10 @@ myst_heading_anchors = 3
 
 source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
 master_doc = "index"
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
+# "handoff-*.md" are working notes left for whoever picks a job up next, not part of the
+# manual. They live here so they are next to the decision records they will turn into, but
+# they are in no toctree, and -W would fail the build over that.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "handoff-*.md"]
 
 # Autodoc: document what the module docstrings say, in source order rather than
 # alphabetically -- these modules are written to be read top to bottom.

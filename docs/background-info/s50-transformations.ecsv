@@ -1,0 +1,42 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: s50_band, datatype: string}
+# - {name: target, datatype: string}
+# - {name: degree, datatype: int64}
+# - {name: rms_mmag, datatype: float64}
+# - {name: n, datatype: int64}
+# - {name: c0, datatype: float64}
+# - {name: c1, datatype: float64}
+# - {name: c2, datatype: string, subtype: json}
+# - {name: c3, datatype: string, subtype: json}
+# meta: !!omap
+# - comments: ['S50 -> standard-system transformations, delta = target - S50_band, as', 'delta = sum_i c_i * x^i with x = B_S50 - R_S50
+#       over [0.0, 1.65].', All magnitudes are AB and synthesised from the same Gaia XP spectra., rms is the sigma-clipped residual scatter
+#       of the fit., Built by tools/build_s50_system_figures.py.]
+# schema: astropy-2.0
+s50_band target degree rms_mmag n c0 c1 c2 c3
+R R_JKC 1 8.5 223338 -0.000286 -0.148148 null null
+R R_JKC 2 8.16 224232 -0.018229 -0.089812 -0.038768 null
+R R_JKC 3 6.89 222895 0.009758 -0.243592 0.193068 -0.100675
+R r_SDSS 1 9.0 224332 -0.036571 0.022967 null null
+R r_SDSS 2 4.21 223128 -0.003556 -0.083962 0.070648 null
+R r_SDSS 3 3.96 223138 -0.013497 -0.029851 -0.010091 0.034593
+R i_SDSS 1 51.81 222613 0.113269 -0.663879 null null
+R i_SDSS 2 42.81 223449 -0.028714 -0.205013 -0.302575 null
+R i_SDSS 3 38.33 222110 0.093259 -0.878084 0.717063 -0.444912
+R I_JKC 1 64.63 222634 0.163458 -0.829153 null null
+R I_JKC 2 52.49 223511 -0.018669 -0.240112 -0.388722 null
+R I_JKC 3 47.01 222102 0.130631 -1.065448 0.863453 -0.547127
+G V_JKC 1 11.53 224759 -0.044642 0.070285 null null
+G V_JKC 2 6.57 226526 0.000489 -0.077315 0.09833 null
+G V_JKC 3 4.98 226717 -0.026632 0.071621 -0.125963 0.097254
+G r_SDSS 1 7.62 222640 0.021719 -0.450153 null null
+G r_SDSS 2 6.14 221403 0.003318 -0.391083 -0.038059 null
+G r_SDSS 3 4.84 220068 0.02254 -0.494219 0.113835 -0.064072
+B B_JKC 1 48.4 223866 -0.129037 0.808914 null null
+B B_JKC 2 18.1 225468 0.077004 0.133977 0.453522 null
+B B_JKC 3 14.65 226742 0.001707 0.563163 -0.217059 0.302164
+B g_SDSS 1 44.22 223870 -0.143563 0.414268 null null
+B g_SDSS 2 15.25 225610 0.053301 -0.229933 0.431957 null
+B g_SDSS 3 8.77 225022 -0.036672 0.265927 -0.328349 0.336968

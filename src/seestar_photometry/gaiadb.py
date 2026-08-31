@@ -27,13 +27,19 @@ fall below G, and buys a faint limit that means something in the science band.
 Columns are the ones the package reads today plus the ones it is about to want, and no
 more -- every extra float32 is half a gigabyte over the full sky. See ``COLUMNS``.
 
+Six of them, ``r_s50_mag`` through ``b_s50_mag_err``, are not Gaia's: they are synthetic
+magnitudes in the Seestar's *own* R/G/B system, integrated from Gaia XP spectra through
+the fitted S50 passbands by ``tools/build_gaia_s50.py``. They exist only for the bright
+quarter of the catalogue, because ESA publishes sampled XP spectra down to G = 15.0 and
+no further, and are masked elsewhere.
+
 Layout
 ------
 
 A Hive-partitioned Parquet dataset, one file per HEALPix level-5 pixel (12288 of them,
 under a megabyte each), rows sorted by ``source_id`` within a part::
 
-    gaia-seestar-dr3-v1/
+    gaia-seestar-dr3-v2/
       MANIFEST.json
       hpx5=00000/part.parquet
       ...
@@ -77,7 +83,7 @@ import numpy as np
 DATA_RELEASE = "dr3"
 
 #: Bumped when the schema or the row selection changes, not when Gaia does.
-DATA_VERSION = "v1"
+DATA_VERSION = "v2"
 
 #: Directory (and remote path component) the dataset lives under.
 DATASET = f"gaia-seestar-{DATA_RELEASE}-{DATA_VERSION}"
@@ -131,10 +137,22 @@ MANIFEST = "MANIFEST.json"
 #: range over which the synthetic V was validated. It guards the one column everything
 #: else depends on, and as a boolean it compresses to nothing, so it is carried even
 #: though nothing reads it yet.
+#:
+#: The six ``*_s50_mag`` columns are the Seestar's *own* photometric system, synthesised
+#: from Gaia XP spectra through the fitted S50 passbands (``tools/build_gaia_s50.py``).
+#: Calibrating a Bayer plane against its own band removes the zero point's colour term
+#: rather than fitting it: measured on 57 fifteen-minute stacks, R -0.132 -> -0.002 and
+#: B +0.548 -> ~0 mag/mag. They are populated only where Gaia published a *sampled* XP
+#: spectrum, which is a hard G < 15.0 cut and 23.0% of the rows here; everywhere else
+#: they are masked, and ``v_jkc_mag`` remains the reference. Named per unit model, since
+#: the S30, S30 Pro and S50 Pro use different sensors and will need their own.
 COLUMNS = (
     "source_id", "ra", "dec",
     "phot_g_mean_mag", "bp_rp", "phot_variable_flag",
     "v_jkc_mag", "b_jkc_mag", "r_jkc_mag", "v_jkc_flag",
+    "r_s50_mag", "r_s50_mag_err",
+    "g_s50_mag", "g_s50_mag_err",
+    "b_s50_mag", "b_s50_mag_err",
     "pmra", "pmdec",
     "c_star", "ruwe", "teff_gspphot",
     "ipd_frac_multi_peak", "non_single_star",
@@ -153,6 +171,12 @@ DTYPES = {
     "b_jkc_mag": "float32",
     "r_jkc_mag": "float32",
     "v_jkc_flag": "bool",
+    "r_s50_mag": "float32",
+    "r_s50_mag_err": "float32",
+    "g_s50_mag": "float32",
+    "g_s50_mag_err": "float32",
+    "b_s50_mag": "float32",
+    "b_s50_mag_err": "float32",
     "pmra": "float32",
     "pmdec": "float32",
     "c_star": "float32",
@@ -171,6 +195,9 @@ UNITS = {
     "pmra": "mas / yr", "pmdec": "mas / yr",
     "phot_g_mean_mag": "mag", "bp_rp": "mag",
     "v_jkc_mag": "mag", "b_jkc_mag": "mag", "r_jkc_mag": "mag",
+    "r_s50_mag": "mag", "r_s50_mag_err": "mag",
+    "g_s50_mag": "mag", "g_s50_mag_err": "mag",
+    "b_s50_mag": "mag", "b_s50_mag_err": "mag",
     "teff_gspphot": "K",
 }
 
@@ -345,6 +372,29 @@ def _to_table(arrow):
     out = Table()
     for name in COLUMNS:
         out[name] = _column_to_masked(arrow.column(name), name)
+    return out
+
+
+def read_part(path):
+    """One part file as an astropy Table, nulls preserved as a mask.
+
+    The inverse of :func:`write_part`, and tolerant of a part written against an
+    *older* schema: only the columns actually in the file are read, so a dataset built
+    before a column existed still loads. That is what lets a build tool add columns to
+    an existing dataset a part at a time -- read, add, write -- rather than rebuilding
+    every part from Gaia.
+
+    :func:`cone` does not use this: it reads many parts into one Arrow table first, so
+    that the astropy conversion happens once rather than per part.
+    """
+    import pyarrow.parquet as pq
+    from astropy.table import Table
+
+    arrow = pq.read_table(path)
+    out = Table()
+    for name in COLUMNS:
+        if name in arrow.column_names:
+            out[name] = _column_to_masked(arrow.column(name), name)
     return out
 
 

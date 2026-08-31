@@ -209,13 +209,14 @@ Its shape, and the reasoning:
   V < 17.5. Restricting to sources that *have* synthetic V means every row is a usable
   calibrator with nothing masked in the columns that matter. Cutting on V rather than G
   costs only the ~10–15% of rows red enough for V to fall below G, and buys a faint limit
-  that means something in the science band. About 195M rows.
+  that means something in the science band. 148.7M rows, measured on the built dataset.
 - **Columns are what the package reads plus what it is about to want**, and no more: every
   extra float32 is ~0.5 GB over the full sky. Beyond the TAP set that means proper motions,
   `c_star` and `ipd_frac_multi_peak` (blend indicators — at 2.4 arcsec/px with a ~10 arcsec
   FWHM, blended comparisons are the norm), `ruwe` and `non_single_star` (unresolved
   binaries), `teff_gspphot`, and `v_jkc_flag`, which is Gaia's own statement that the
-  synthetic V is inside its validated range.
+  synthetic V is inside its validated range. Plus six that are not Gaia's at all — see
+  *Synthetic magnitudes in the Seestar's own bands*, below.
 - **Partitioned into 12288 HEALPix level-5 tiles**, so a partial copy is worth having: three
   observing fields cost tens of MB rather than the whole set. The partition key is free —
   a Gaia `source_id` already encodes its level-12 nested index, so `source_id >> 49` *is*
@@ -251,6 +252,34 @@ mismatch is exactly what the colour term absorbs.
 
 Sources without synthetic photometry come through with those columns **masked**, so a
 non-masked `v_jkc_mag` always means a usable calibrator.
+
+### Synthetic magnitudes in the Seestar's own bands
+
+Gaia publishes the XP spectra its synthetic photometry is computed *from*, so the same trick
+works for any passband — including the Seestar's. `tools/build_gaia_s50.py` integrates every
+available XP spectrum through the S50's fitted R/G/B response and writes `r_s50_mag`,
+`g_s50_mag`, `b_s50_mag` (+ `_err`, AB) into the offline catalogue; the passband model
+itself was fitted from our own frames in `photometry-adventures-2`.
+
+The point is what it does to the colour term. Calibrating a Bayer plane against V and
+absorbing the mismatch in `k` works, but the mismatch is largest exactly where the plane is
+least V-like: measured on 57 fifteen-minute 20 Cep stacks the colour term was G +0.054,
+R −0.132 and **B +0.548 mag/mag**. Calibrating each plane against its own synthetic band
+instead takes all three to ≈0 and drops the B-plane calibrator rms from 347 to 104 mmag —
+the colour term stops being fitted because there is nothing left for it to correct.
+
+Two limits, both worth knowing before relying on the columns:
+
+- **They stop at G = 15.0.** ESA's bulk `xp_sampled_mean_spectrum` product is the bright
+  subset of the XP population: coverage of this catalogue is 100% below G = 15.0 and 0%
+  above, or 23.0% of rows overall (37% at high latitude, 17% in the Galactic plane, where the
+  same cut takes a smaller share). Everything fainter keeps `v_jkc_mag` and a fitted colour
+  term. Reaching the catalogue's own V < 17.5 limit would mean the *continuous* XP product —
+  3.6 TB against 114 GB, and a GaiaXPy sampling pass per source.
+- **The quoted error ignores the XP samples' correlations**, so it is a mild underestimate.
+  Good enough for weighting a calibrator, not for a formal uncertainty.
+
+Nothing in the calibration path reads these yet; `v_jkc_mag` is still the reference.
 
 ### The zero-point fit
 
