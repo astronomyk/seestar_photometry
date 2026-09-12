@@ -6,7 +6,7 @@ the CrowdSky webspace; the third is a GitHub release asset.
 | What | Size | Where | Built by |
 |---|---|---|---|
 | Example data | 18 MB | GitHub release `example-data-v1` | `tools/build_example_data.py` |
-| Gaia catalogue | ~10 GB full sky | `crowdsky.univie.ac.at/seestar_assets/gaia-seestar-dr3-v2/` | `tools/build_gaia_catalogue.py` |
+| Gaia catalogue | 6.35 GB, all sky | `crowdsky.univie.ac.at/seestar_assets/gaia-seestar-dr3-v2/` | `build_gaia_allsky.py` + `build_gaia_s50.py` |
 | ASTAP mirror | 106 MB | `crowdsky.univie.ac.at/seestar_assets/astap/` | `tools/build_astap_mirror.py` |
 
 The CrowdSky webspace is mounted over the VPN at `Z:\crowdskyo92\html\seestar_assets`,

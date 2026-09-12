@@ -133,3 +133,22 @@ and `SEESTAR_PHOTOMETRY_DATA` points an offline machine at a pre-populated copy.
 The consequence to keep in mind: `tests/test_real_data.py` skips itself when the data
 cannot be fetched, so a green suite on a disconnected machine is not proof that half of it
 ran.
+
+## The other two runtime downloads
+
+The example data is one of three things fetched rather than shipped, and all three share
+the same shape: nothing in a default install touches them, each is checksum-verified
+before anything moves into place, and each caches under a directory keyed on its own
+version constant so a bump never needs a stale copy invalidated by hand.
+
+| | Size | Where | Keyed on |
+|---|---|---|---|
+| example data | 18 MB | GitHub release asset | `examples.DATA_VERSION` |
+| Gaia catalogue | 6.35 GB all sky, or the parts you ask for | CrowdSky webspace | `gaiadb.DATA_RELEASE` + `DATA_VERSION` |
+| ASTAP + star database | 106 MB | CrowdSky webspace | `astap.VERSION` |
+
+Both webspace URLs honour an environment override (`SEESTAR_GAIA_URL`, `SEESTAR_ASTAP_URL`)
+so a staging copy — or a local directory over `file://` — can be tested without editing
+code. What is hosted where, how each was built and how to verify a deployment is
+`tools/HOSTING.md`, which is a runbook rather than a decision record and lives outside
+`docs/` for that reason.

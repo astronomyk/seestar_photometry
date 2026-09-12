@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Documentation
+
+- The README, `docs/index.md` and `docs/install.md` now describe the offline Gaia
+  catalogue and the synthetic S50 bands, which shipped in 0.4.0 with no mention in any
+  introduction. The README also installs from PyPI rather than telling every reader to
+  clone the repository and run `uv sync`, lists the extras, and no longer says ASTAP has
+  to be installed by hand. **The PyPI project page keeps the old README until the next
+  release** — a published sdist cannot be replaced.
+- `docs/architecture.md` covers all three runtime downloads rather than only the example
+  data, and points at `tools/HOSTING.md` for the deployment side.
+- Corrected: the wheel is ~140 kB, not "under 100 kB"; the all-sky catalogue is 6.35 GB,
+  not "~10 GB"; and `tools/HOSTING.md` credited the wrong build tool for it.
+
 ## 0.4.0 — 2026-09-12
 
 The offline Gaia catalogue becomes real. The whole sky is built and hosted — 148.7M rows

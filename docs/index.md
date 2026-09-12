@@ -19,13 +19,15 @@ curve of MW Cam and a Type II supernova in NGC 3310 — and encodes what those n
 - **A re-solved WCS**, because the on-board one is off by ~1 arcminute and useless for
   photometry.
 - **Ensemble differential photometry** that stays honest when comparison stars come and go.
+- **An offline all-sky reference catalogue**, so a reduction never has to touch the
+  network — 148.7M Gaia sources to V < 17.5, fetched by the patch of sky you need.
 - **Diagnostic figures for every stage**, so you can see that it worked rather than hope.
 
 ```{admonition} Every example here is executable
 :class: tip
 Every code block runs on real Seestar frames — cutouts, solved WCS sidecars and a trimmed
 Gaia table — so no plate solver and no catalogue query is needed. `examples.download()`
-fetches them once (~18 MB) and caches them; the wheel itself stays under 100 kB.
+fetches them once (~18 MB) and caches them; the wheel itself stays under 140 kB.
 ```
 
 ## Thirty seconds

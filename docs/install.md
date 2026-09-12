@@ -5,7 +5,7 @@ pip install seestar-photometry
 ```
 
 Python 3.11 or newer. The core install pulls `astropy`, `astroquery`, `numpy`, `scipy` and
-`sep` — about 100 kB of package on top of those.
+`sep` — about 140 kB of package on top of those.
 
 ## The example data
 
@@ -64,15 +64,28 @@ pip install "seestar-photometry[catalog]"
 ```
 
 ```python
-from seestar_photometry import gaiadb
-
-gaiadb.download(center=(186.68, 81.47), radius_deg=5)   # just this patch of sky
-gaiadb.download()                                        # or the whole thing
+proj.fetch_catalogue()                                   # the sky this project needs
 ```
 
-Fetching per region is the point of the layout: the catalogue is partitioned into 12288
-HEALPix tiles, so a few observing fields cost tens of MB rather than the full multi-GB
-set. Its own cache location, so it can live on a different disk from the example data:
+```python
+from seestar_photometry import gaiadb
+
+gaiadb.download(center=(186.68, 81.47), radius_deg=5)   # or an explicit cone
+gaiadb.download()                                        # or the whole 6.4 GB
+```
+
+Prefer `Project.fetch_catalogue()` to calling `gaiadb.download()` with a radius you picked
+yourself. The radius that matters is `Project.catalogue_radius_deg` — 2.221° at the default
+`catalogue_half_deg`, reaching the corners of the box a whole night's dithering covers —
+not the field of view. Ask for a frame's worth and you get 11 HEALPix parts where the
+project wants 14, and the only symptom is `catalogue_backend_used()` quietly answering
+`"tap"`.
+
+The whole sky is published — 148,667,792 sources to V < 17.5 — but fetching per region is
+the point of the layout: it is partitioned into 12288 HEALPix tiles, so a few observing
+fields cost tens of MB rather than the full 6.4 GB.
+
+It has its own cache location, so it can live on a different disk from the example data:
 
 | | |
 |---|---|
@@ -93,6 +106,15 @@ default match tolerance:
 ```python
 Project(..., epoch=2026.4)      # propagate to the observing season
 ```
+
+And it carries synthetic magnitudes in the Seestar's *own* R/G/B bands — `r_s50_mag`,
+`g_s50_mag`, `b_s50_mag` and their errors — integrated from Gaia XP spectra through the
+unit's fitted passbands, for the 34.2M sources brighter than G = 15 (23% of the catalogue;
+ESA publishes sampled XP spectra no fainter than that, and the columns are masked
+elsewhere). Nothing in the calibration path reads them yet — `v_jkc_mag` remains the
+reference — but they are what would let each Bayer plane be calibrated against its own
+band instead of the nearest classical one. See
+[the S50 photometric system](background-info/s50-photometric-system.md).
 
 To build a catalogue for one field yourself instead of downloading, from a source
 checkout:

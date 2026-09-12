@@ -13,7 +13,9 @@ hatchling backend. Python import names can't contain hyphens.
 `uv` only. Never `uv run --active`. Point PyCharm at `.venv`; don't let it make its own.
 
 ```bash
-uv sync --extra dev          # matplotlib, pytest, astroalign, scikit-image, build, twine
+uv sync --extra dev          # matplotlib, pytest(-cov), astroalign, scikit-image,
+                             # pyarrow, astropy-healpix, build, twine
+uv sync --extra dev --extra docs                       # + sphinx, myst-parser, furo
 uv run pytest                # whole suite, offline, ~seconds
 uv run pytest tests/test_photometry.py -k aperture
 uv run python examples/mwcam_lightcurve.py
@@ -30,7 +32,11 @@ docs with `-W`. There is no linter or formatter configured — match the surroun
   `.aperture`, `.fwhm`) is shape `(3,)` in that order. **Green is index 1 and is the
   science band** (≈ Johnson V through the Seestar's IRCUT filter). Only green is
   calibrated onto reference V; R and B stay instrumental, which is all the colour
-  diagnostics need.
+  diagnostics need. The offline catalogue *also* carries synthetic magnitudes in the
+  instrument's own bands (`r_s50_mag` / `g_s50_mag` / `b_s50_mag`), which would let all
+  three planes be calibrated and remove the colour term rather than fit it — but
+  **nothing reads them yet**, and `v_jkc_mag` is still the reference everywhere. They
+  reach only G < 15, so any consumer has to keep the V path as the fallback.
 
 - **Image shape comes from the data, never the header.** `frame.shape` is the accessor.
   The CrowdSky multi-extension layout has an *empty* primary HDU with no `NAXIS1`/`NAXIS2`,
@@ -149,4 +155,12 @@ expects the binary at `astrometry.ASTAP_EXE`.
 `docs/` are decision records, not API reference. Read the relevant one before changing a
 numerical choice: `photometry-design.md` (apertures — start here), `data-format.md`,
 `astrometry-and-gaia.md`, `frame-table.md`, `light-curves.md`, `diagnostics.md`,
-`architecture.md`. Update `CHANGELOG.md` for anything user-visible.
+`architecture.md`, and `background-info/s50-photometric-system.md` (where the instrument's
+bands sit against JKC and SDSS, and the transformations between them). Update
+`CHANGELOG.md` for anything user-visible.
+
+`docs/handoff-*.md` are working notes for whoever picks a job up next, not part of the
+manual — they are excluded from the Sphinx build, which `-W` would otherwise fail over.
+
+The runbook for everything fetched at runtime — what is hosted where, how it was built and
+how to verify a deployment — is `tools/HOSTING.md`.
