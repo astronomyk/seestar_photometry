@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-09-12
+
+The offline Gaia catalogue becomes real. The whole sky is built and hosted — 148.7M rows
+in 12288 parts — and it carries synthetic magnitudes in the Seestar's *own* R/G/B bands,
+so a Bayer plane can be calibrated against its own passband instead of against the nearest
+classical one. This is also the first release in which the two runtime downloads work at
+all: both pointed at a URL that does not exist, and nothing was hosted behind it.
+
 ### Added
 
 - **Synthetic Seestar-system magnitudes in the offline Gaia catalogue.** Six new
@@ -17,10 +25,23 @@
   ESA publishes *sampled* XP spectra for the bright subset of the XP population and no
   further. Elsewhere the columns are masked and `v_jkc_mag` remains the reference, which is
   what every consumer still reads today.
+- **`Project.fetch_catalogue()`** — downloads the offline catalogue for this field at the
+  radius that actually matters. That is `catalogue_radius_deg` (2.221° at the default
+  `catalogue_half_deg`), which reaches the corners of the cached box a whole night's
+  dithering covers, *not* the field of view. Asking for a frame's worth pulls 11 HEALPix
+  parts where the project needs 14, and the only symptom is `catalogue_backend_used()`
+  quietly answering `"tap"`.
 - `gaiadb.read_part` — one part file as a Table, tolerating a part written before a column
   existed. What lets a build tool add columns to a dataset a part at a time.
-- `tools/build_gaia_s50.py`, which does that from ESA's bulk XP CDN, plus the passband
-  curves it integrates through (`tools/bayer_passbands.ecsv`). See `tools/HOSTING.md`.
+- `gaiadb.write_part` and `gaiadb.finalise_manifest`, so a dataset can be built one
+  HEALPix part at a time and indexed once at the end. 12288 parts is many hours of work
+  and a build has to survive being killed. A part may carry only some of the schema — the
+  columns come from two Gaia tables and the expensive one is 790 GB in bulk form — so
+  absent columns are written entirely null, read back masked, and listed in the manifest's
+  new `columns_present`.
+- `tools/build_gaia_s50.py`, which adds the six columns to an existing dataset part by
+  part from ESA's bulk XP CDN, plus the passband curves it integrates through
+  (`tools/bayer_passbands.ecsv`). See `tools/HOSTING.md`.
 - **`docs/background-info/s50-photometric-system.md`** — where the S50's bands sit against
   Johnson-Kron-Cousins and SDSS, the conversions between them (also as
   `s50-transformations.ecsv`), whether those conversions need a term beyond a linear
@@ -36,8 +57,32 @@
 
 ### Changed
 
-- `gaiadb.DATA_VERSION` is `v2`, for the schema change above. `v1` has to stay on the
-  server until a `v2` dataset is uploaded there: the version is in the URL.
+- **`gaiadb.DATA_VERSION` is `v2`**, for the schema change above, and the dataset it names
+  is now on the server: the full sky, 12288 parts, 148,667,792 rows, 6.35 GB, verified by
+  checksum over HTTPS. No `v1` was ever hosted, so nothing is superseded and no client can
+  be stranded on the old URL — `catalogue_backend="auto"` simply stops falling back to TAP
+  for fields it can now answer from disk.
+
+### Fixed
+
+- **Neither runtime download worked.** `gaiadb.BASE_URL` and `astap.BASE_URL` both pointed
+  at `crowdsky.univie.ac.at/seestar/…`, which does not exist; the assets live under
+  `/seestar_assets/`. Nothing was hosted behind the old path either, so `astap.download()`
+  and `gaiadb.download()` could only ever fail. Both corrected, and both verified against
+  the live URLs from a clean cache.
+- **`gaiadb.download` reused a cached manifest and never refreshed it.** The manifest is
+  the index of what the server carries, and that index grows: anyone who fetched it while
+  only one region was published would be told their field is not carried long after it
+  was. It is now re-fetched on every call, which costs a few kB.
+- **`gaiadb.write_part` refuses a part containing a duplicate `source_id`.** A build tool
+  laundered integer columns through float64, and a Gaia `source_id` needs 61 bits where
+  float64 keeps 53 — so identifiers were rounded together and distinct stars merged into
+  one row's identity. In a 1.5° cone of the region deployed at the time: 83 duplicated
+  identifiers, two physically distinct stars 40″ and 0.5 mag apart sharing one id, and 45%
+  of identifiers altered. Nothing downstream noticed, because the photometry stayed
+  plausible — it was just attributed to the wrong star. The check is complete rather than
+  a sample: an identifier occurs once in Gaia and the partition is derived from it, so a
+  repeat can only ever appear within a single part.
 
 ## 0.3.0 — 2026-08-10
 
