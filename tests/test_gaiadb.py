@@ -348,6 +348,30 @@ def test_proper_motion_moves_a_star_by_the_right_amount(tmp_path, catalogue):
     assert ten_years.meta["epoch"] == gaiadb.REF_EPOCH + 10.0
 
 
+def test_propagated_positions_are_still_positions(tmp_path, catalogue):
+    """Epoch propagation must not relabel ``ra``/``dec`` as proper motions.
+
+    Filling a masked ``pmra`` returns a *Column* that keeps its ``mas / yr``, and the
+    arithmetic carried that unit onto the result, so a propagated catalogue described
+    its positions as proper motions. Every number was right, which is why it survived:
+    the only symptom was that building a ``SkyCoord`` from the catalogue raised. That is
+    the whole cross-match path, so it is asserted here rather than left to be rediscovered.
+    """
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+
+    table = catalogue.copy()
+    table["pmra"] = np.full(len(table), 1000.0, dtype="float32")
+    table["pmdec"] = np.full(len(table), -750.0, dtype="float32")
+    gaiadb.write_dataset(table, tmp_path)
+
+    moved = gaiadb.cone(FIELD, 3.0, directory=tmp_path,
+                        epoch=gaiadb.REF_EPOCH + 10.0)
+    assert moved["ra"].unit == u.deg
+    assert moved["dec"].unit == u.deg
+    SkyCoord(moved["ra"], moved["dec"])
+
+
 def test_no_epoch_leaves_positions_at_the_gaia_epoch(dataset, catalogue):
     got = gaiadb.cone(FIELD, 3.0, directory=dataset)
     got.sort("source_id")

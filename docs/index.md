@@ -79,6 +79,7 @@ example-data
 :caption: Background
 
 background-info/s50-photometric-system
+background-info/s30pro-s50pro-passbands
 ```
 
 ```{toctree}

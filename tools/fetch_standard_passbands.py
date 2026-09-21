@@ -34,6 +34,12 @@ FILTERS = {
     "g_SDSS": "SLOAN/SDSS.g",
     "r_SDSS": "SLOAN/SDSS.r",
     "i_SDSS": "SLOAN/SDSS.i",
+    # Gaia's own BP and RP, so a BP-RP colour can be synthesised from the same XP
+    # spectra as everything else. That matters for the units fitted offline: `bp_rp`
+    # lives only in `gaia_source` and is masked in the all-sky build, and a colour axis
+    # has to come from somewhere that is not the bands being fitted.
+    "BP_GAIA": "GAIA/GAIA3.Gbp",
+    "RP_GAIA": "GAIA/GAIA3.Grp",
 }
 
 #: The XP product's grid, which everything is resampled onto: 336-1020 nm, 2 nm.

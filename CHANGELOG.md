@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Added
+
+- **Passbands for the S30 Pro and S50 Pro**, fitted by the same method as the S50's:
+  sensor QE digitised from the manufacturer's plot, times a UV/IR-cut model whose red
+  edge is fitted from each unit's own 20 Cep frames by zeroing the zero-point colour
+  term. `tools/unit_passbands.ecsv`, built by `tools/fit_unit_passbands.py` from
+  `tools/digitise_sensor_qe.py`, which now reads all three sensors' plots through one
+  code path. Calibrating against a unit's own bands instead of the nearest classical
+  one cuts the blue plane's calibrator scatter 3.2x on the S30 Pro (263 to 81 mmag) and
+  3.6x on the S50 Pro (317 to 89 mmag). See
+  `docs/background-info/s30pro-s50pro-passbands.md`.
+
+  **The single-edge model the S50 used does not fit either new sensor**: their green and
+  red planes want IR-cut edges ~24 nm apart where the S50's agreed to 1 nm. The edge is
+  now fitted from the red plane, whose peak sits under the filter, and the residual is
+  carried by multiplicative corrections to the weak green and blue shoulders. Run on the
+  S50 as a control the new parameter comes out at x1.016 -- inert where the old model
+  already worked. The S50's published passbands are unchanged and still authoritative,
+  because the catalogue's 34.2M `*_s50_mag` values were integrated through them.
+
+### Fixed
+
+- **`gaiadb.propagate_epoch` relabelled `ra` and `dec` as proper motions.** Filling a
+  masked `pmra` returns a `Column` that keeps its `mas / yr`, and the arithmetic carried
+  that unit onto the result. Every number was right, so the only symptom was that any
+  `SkyCoord` built from a propagated catalogue raised -- which is the whole cross-match
+  path, and therefore all of `Project(epoch=...)`. Assigning a bare array over the
+  column instead drops the unit entirely, so the fix writes values *into* the existing
+  columns.
+
 ### Documentation
 
 - The README, `docs/index.md` and `docs/install.md` now describe the offline Gaia
